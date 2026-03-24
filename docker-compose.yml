@@ -1,0 +1,58 @@
+version: '3.9'
+
+services:
+  # ─── PostgreSQL 15 (local dev) ─────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: hunterfit-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: hunterfit
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hunterfit_dev}
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ─── Backend .NET 6 ────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: hunterfit-backend
+    restart: unless-stopped
+    ports:
+      - '5000:80'
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=hunterfit;Username=postgres;Password=${POSTGRES_PASSWORD:-hunterfit_dev}
+      - Jwt__Key=${JWT_KEY:-REPLACE_32_CHAR_MIN_SECRET_KEY_HERE}
+      - Jwt__Issuer=HunterFit
+      - Jwt__Audience=HunterFitUsers
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ─── Frontend Next.js ──────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: hunterfit-frontend
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:5000
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

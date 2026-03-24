@@ -1,0 +1,130 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* HunterFit Dark Theme (padrão) */
+    --background: 224 25% 6%;
+    --foreground: 210 40% 95%;
+    --card: 224 20% 10%;
+    --card-foreground: 210 40% 95%;
+    --popover: 224 20% 10%;
+    --popover-foreground: 210 40% 95%;
+    --primary: 252 100% 67%;       /* #6366f1 indigo */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 224 20% 15%;
+    --secondary-foreground: 210 40% 95%;
+    --muted: 224 20% 14%;
+    --muted-foreground: 215 20% 55%;
+    --accent: 252 100% 67%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 224 15% 18%;
+    --input: 224 15% 14%;
+    --ring: 252 100% 67%;
+    --radius: 0.75rem;
+
+    /* Rank glow colors */
+    --glow-e: 156 5% 67%;
+    --glow-d: 142 71% 45%;
+    --glow-c: 217 91% 60%;
+    --glow-b: 270 91% 65%;
+    --glow-a: 24 95% 53%;
+    --glow-s: 48 96% 53%;
+    --glow-national: 0 84% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    /* Mobile-first: sem scrollbar horizontal */
+    overflow-x: hidden;
+  }
+
+  /* Touch targets mínimos de 44px para mobile */
+  button, a, [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+@layer components {
+  /* ─── Cards ─── */
+  .hunter-card {
+    @apply bg-card rounded-xl border border-border p-4 shadow-lg;
+  }
+
+  /* ─── Rank badges ─── */
+  .rank-badge {
+    @apply inline-flex items-center justify-center font-bold text-xs px-2 py-0.5 rounded-md uppercase tracking-wider;
+  }
+  .rank-e { @apply rank-badge bg-gray-700 text-gray-300; }
+  .rank-d { @apply rank-badge bg-green-900 text-green-400; }
+  .rank-c { @apply rank-badge bg-blue-900 text-blue-400; }
+  .rank-b { @apply rank-badge bg-purple-900 text-purple-400; }
+  .rank-a { @apply rank-badge bg-orange-900 text-orange-400; }
+  .rank-s { @apply rank-badge bg-yellow-900 text-yellow-400; }
+  .rank-national { @apply rank-badge bg-red-900 text-red-400; }
+
+  /* ─── XP Bar ─── */
+  .xp-bar {
+    @apply h-2 rounded-full bg-muted overflow-hidden;
+  }
+  .xp-bar-fill {
+    @apply h-full rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 transition-all duration-1000;
+  }
+
+  /* ─── Sistema notifications (Solo Leveling style) ─── */
+  .system-notification {
+    @apply fixed top-4 left-1/2 -translate-x-1/2 z-50;
+    @apply bg-gradient-to-b from-blue-950 to-indigo-950 border border-blue-700;
+    @apply rounded-xl px-6 py-4 shadow-2xl text-center;
+    @apply font-mono text-blue-200;
+    max-width: calc(100vw - 32px);
+  }
+
+  /* ─── Dungeon Entry overlay ─── */
+  .dungeon-overlay {
+    @apply fixed inset-0 z-40 flex items-center justify-center;
+    background: radial-gradient(ellipse at center, rgba(99,102,241,0.15) 0%, rgba(0,0,0,0.95) 70%);
+  }
+
+  /* ─── Stat bars (STR / VIT / AGI / INT / PER) ─── */
+  .stat-bar {
+    @apply flex items-center gap-2 text-sm;
+  }
+
+  /* ─── Rest timer flutuante ─── */
+  .rest-timer-portal {
+    @apply fixed bottom-20 left-1/2 -translate-x-1/2 z-50;
+    @apply bg-card border border-border rounded-2xl px-6 py-3 shadow-2xl;
+    @apply flex items-center gap-3;
+  }
+
+  /* ─── Bottom navigation ─── */
+  .bottom-nav {
+    @apply fixed bottom-0 left-0 right-0 z-30;
+    @apply bg-card border-t border-border;
+    @apply grid grid-cols-5 py-2 px-1;
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+
+  /* ─── Penalty zone banner ─── */
+  .penalty-banner {
+    @apply w-full py-2 px-4 text-center text-sm font-semibold;
+    @apply bg-red-950 border-b border-red-800 text-red-300;
+    animation: pulse 2s ease-in-out infinite;
+  }
+}
+
+/* Scrollbar customizado */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 4px; }
