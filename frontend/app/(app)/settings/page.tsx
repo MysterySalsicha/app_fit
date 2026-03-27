@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import Link from 'next/link'
 import { useAuthStore } from '@/lib/stores/authStore'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { api } from '@/lib/api/client'
@@ -286,6 +287,24 @@ export default function SettingsPage() {
         >
           {saved ? '✓ Salvo!' : 'Salvar lembretes'}
         </button>
+      </section>
+
+      {/* Ferramentas */}
+      <section className="hunter-card space-y-3">
+        <h2 className="text-sm font-semibold text-foreground">🔧 Ferramentas</h2>
+        <Link
+          href="/tools/plate-calculator"
+          className="flex items-center justify-between w-full py-2 border-b border-border last:border-0"
+        >
+          <div className="flex items-center gap-2">
+            <span>🏋️</span>
+            <div>
+              <p className="text-sm text-foreground">Calculadora de Anilhas</p>
+              <p className="text-xs text-muted-foreground">Calcule quais anilhas colocar na barra</p>
+            </div>
+          </div>
+          <span className="text-muted-foreground text-sm">›</span>
+        </Link>
       </section>
 
       {/* Strava */}

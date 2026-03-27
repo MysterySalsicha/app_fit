@@ -29,6 +29,18 @@ public class User
     public bool OnboardingCompleted { get; set; } = false;
     public DateTime? OnboardingCompletedAt { get; set; }
 
+    // ── Plate Calculator (HEVY-04) ──────────────────────────────────────────
+    /// <summary>
+    /// JSON array com os pesos das anilhas disponíveis (em kg).
+    /// Ex: "[20,10,5,2.5,1.25,1,0.5]"
+    /// </summary>
+    public string AvailablePlatesKg { get; set; } = "[20,10,5,2.5,1.25,1,0.5]";
+
+    /// <summary>
+    /// Peso da barra padrão do usuário em kg. Default 20 kg (barra olímpica).
+    /// </summary>
+    public decimal BarbellWeightKg { get; set; } = 20m;
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>

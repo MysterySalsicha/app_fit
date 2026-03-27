@@ -236,8 +236,47 @@ public class HunterController : ControllerBase
         var status = await _penalty.GetPenaltyStatusAsync(UserId);
         return Ok(status);
     }
+
+    // ── Plate Calculator config ────────────────────────────────────────────
+
+    /// <summary>GET /api/hunter/plate-config — Configuração de anilhas disponíveis</summary>
+    [HttpGet("plate-config")]
+    public async Task<IActionResult> GetPlateConfig()
+    {
+        var user = await _db.Users.FindAsync(UserId);
+        if (user is null) return NotFound();
+
+        return Ok(new
+        {
+            availablePlatesKg = System.Text.Json.JsonSerializer.Deserialize<decimal[]>(user.AvailablePlatesKg)
+                                ?? new decimal[] { 20, 10, 5, 2.5m, 1.25m, 1, 0.5m },
+            barbellWeightKg = user.BarbellWeightKg,
+        });
+    }
+
+    /// <summary>PUT /api/hunter/plate-config — Atualiza configuração de anilhas</summary>
+    [HttpPut("plate-config")]
+    public async Task<IActionResult> UpdatePlateConfig([FromBody] PlateConfigDto dto)
+    {
+        var user = await _db.Users.FindAsync(UserId);
+        if (user is null) return NotFound();
+
+        if (dto.AvailablePlatesKg is { Length: > 0 })
+        {
+            // Ordena decrescente e serializa
+            var sorted = dto.AvailablePlatesKg.Where(p => p > 0).OrderByDescending(p => p).ToArray();
+            user.AvailablePlatesKg = System.Text.Json.JsonSerializer.Serialize(sorted);
+        }
+
+        if (dto.BarbellWeightKg is > 0)
+            user.BarbellWeightKg = dto.BarbellWeightKg.Value;
+
+        await _db.SaveChangesAsync();
+        return Ok(new { saved = true });
+    }
 }
 
 public record AllocateStatDto(string Stat);
 public record ChangeClassDto(string HunterClass);
 public record AllocateStatShortDto(string StatType);
+public record PlateConfigDto(decimal[]? AvailablePlatesKg, decimal? BarbellWeightKg);
