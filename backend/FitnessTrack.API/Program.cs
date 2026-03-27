@@ -2,11 +2,13 @@ using FitnessTrack.Application.Services;
 using FitnessTrack.Application.Jobs;
 using FitnessTrack.Infrastructure.Data;
 using FitnessTrack.API.Middleware;
+using FitnessTrack.API.Services;
 using Hangfire;
 using Hangfire.PostgreSql;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.OpenApi.Models;
 using Serilog;
 using System.Text;
@@ -45,6 +47,23 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
             ClockSkew = TimeSpan.Zero,
         };
+
+        // Verifica blacklist de tokens (revogação pós-logout)
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = ctx =>
+            {
+                var blacklist = ctx.HttpContext.RequestServices
+                    .GetRequiredService<ITokenBlacklistService>();
+
+                var jti = ctx.Principal?.FindFirst(JwtRegisteredClaimNames.Jti)?.Value;
+                if (!string.IsNullOrEmpty(jti) && blacklist.IsRevoked(jti))
+                {
+                    ctx.Fail("Token revogado.");
+                }
+                return Task.CompletedTask;
+            }
+        };
     });
 
 builder.Services.AddAuthorization();
@@ -62,6 +81,9 @@ builder.Services.AddCors(options =>
               .AllowAnyMethod();
     });
 });
+
+// ─── Token Blacklist (singleton — persiste durante a vida da aplicação) ────
+builder.Services.AddSingleton<ITokenBlacklistService, TokenBlacklistService>();
 
 // ─── Application Services ──────────────────────────────────────────────────
 builder.Services.AddScoped<IWorkoutParserService, WorkoutParserService>();

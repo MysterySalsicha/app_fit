@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using FitnessTrack.Application.DTOs;
 using FitnessTrack.Infrastructure.Data;
 using FitnessTrack.Core.Entities;
+using FitnessTrack.API.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
@@ -17,11 +18,13 @@ public class AuthController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IConfiguration _config;
+    private readonly ITokenBlacklistService _blacklist;
 
-    public AuthController(AppDbContext db, IConfiguration config)
+    public AuthController(AppDbContext db, IConfiguration config, ITokenBlacklistService blacklist)
     {
         _db = db;
         _config = config;
+        _blacklist = blacklist;
     }
 
     // ─── POST /api/auth/register ──────────────────────────────────────────
@@ -169,6 +172,30 @@ public class AuthController : ControllerBase
         _db.PushSubscriptions.RemoveRange(pushSubs);
 
         await _db.SaveChangesAsync();
+        return NoContent();
+    }
+
+    // ─── POST /api/auth/logout ────────────────────────────────────────────
+    /// <summary>
+    /// Revoga o token atual adicionando seu JTI à blacklist.
+    /// O token permanece no localStorage do cliente — o frontend deve limpá-lo.
+    /// </summary>
+    [HttpPost("logout")]
+    [Authorize]
+    public IActionResult Logout()
+    {
+        var jti = User.FindFirstValue(JwtRegisteredClaimNames.Jti);
+        var expClaim = User.FindFirstValue(JwtRegisteredClaimNames.Exp);
+
+        if (!string.IsNullOrEmpty(jti))
+        {
+            DateTime expiry = DateTime.UtcNow.AddHours(24); // fallback
+            if (long.TryParse(expClaim, out var expUnix))
+                expiry = DateTimeOffset.FromUnixTimeSeconds(expUnix).UtcDateTime;
+
+            _blacklist.Revoke(jti, expiry);
+        }
+
         return NoContent();
     }
 

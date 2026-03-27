@@ -16,7 +16,7 @@ interface AuthState {
 
   login: (email: string, password: string) => Promise<void>
   register: (data: RegisterData) => Promise<void>
-  logout: () => void
+  logout: () => Promise<void>
   clearError: () => void
 }
 
@@ -82,7 +82,13 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
-      logout: () => {
+      logout: async () => {
+        // Revoga o token no servidor antes de limpá-lo localmente (SEC-3)
+        try {
+          await api.post('api/auth/logout')
+        } catch {
+          // Se falhar (ex: offline), continua com o logout local de qualquer forma
+        }
         clearToken()
         set({ user: null, isAuthenticated: false, error: null })
       },
