@@ -1,6 +1,7 @@
 using FitnessTrack.Application.Services;
 using FitnessTrack.Application.Jobs;
 using FitnessTrack.Infrastructure.Data;
+using FitnessTrack.API.Middleware;
 using Hangfire;
 using Hangfire.PostgreSql;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -141,6 +142,10 @@ if (app.Environment.IsDevelopment())
 app.UseSerilogRequestLogging();
 app.UseHttpsRedirection();
 app.UseCors("HunterFitPolicy");
+
+// ─── Rate Limiting (custom, .NET 6 compatible) ────────────────────────────
+app.UseMiddleware<RateLimitMiddleware>();
+
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
