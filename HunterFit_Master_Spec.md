@@ -227,6 +227,8 @@ O HunterFit funciona para qualquer pessoa que frequenta academia ou se exercita 
 | reps | VARCHAR(30) | NOT NULL | ex: "8-12" ou "15" |
 | rest_seconds | INT | DEFAULT 60 | |
 | gif_url | TEXT | NULLABLE | |
+| youtube_video_url | TEXT | NULLABLE | Link oficial ou curado para execução |
+| media_source | VARCHAR(20) | DEFAULT 'gif' | gif \| youtube \| both |
 | notes | TEXT | NULLABLE | |
 | order_index | INT | NOT NULL | |
 | primary_muscle_group | VARCHAR(50) | NULLABLE | Para rank muscular e XP |
@@ -362,12 +364,37 @@ O HunterFit funciona para qualquer pessoa que frequenta academia ou se exercita 
 |--------|------|-----------|-----------|
 | id | UUID | PK | |
 | user_id | UUID | FK → users.id | |
-| reminder_type | VARCHAR(30) | NOT NULL | trt \| supplement \| water \| meal \| workout \| cardio |
+| reminder_type | VARCHAR(30) | NOT NULL | trt \| supplement \| medication \| water \| meal \| workout \| cardio |
 | title | VARCHAR(100) | NOT NULL | |
 | body | VARCHAR(255) | NULLABLE | |
 | time_of_day | TIME | NOT NULL | |
 | days_of_week | INT[] | NOT NULL | [1..7] |
 | is_active | BOOLEAN | DEFAULT TRUE | |
+| validation_mode | VARCHAR(30) | DEFAULT 'none' | none \| time_only \| time_and_location |
+| window_before_minutes | INT | DEFAULT 30 | Janela válida antes do horário |
+| window_after_minutes | INT | DEFAULT 90 | Janela válida após o horário |
+| geofence_label | VARCHAR(100) | NULLABLE | Ex: Casa, Trabalho, Academia |
+| geofence_lat | DECIMAL(9,6) | NULLABLE | |
+| geofence_lng | DECIMAL(9,6) | NULLABLE | |
+| geofence_radius_m | INT | NULLABLE | Ex: 80m |
+| require_confirmation | BOOLEAN | DEFAULT TRUE | Usuário precisa confirmar a tomada |
+| confirmation_type | VARCHAR(20) | DEFAULT 'tap' | tap \| qr \| photo \| manual |
+
+**Tabela: `reminder_events`**
+
+| Coluna | Tipo | Constraint | Descrição |
+|--------|------|-----------|-----------|
+| id | UUID | PK | |
+| reminder_id | UUID | FK → reminders.id | |
+| user_id | UUID | FK → users.id | |
+| scheduled_for | TIMESTAMPTZ | NOT NULL | Momento esperado do lembrete |
+| confirmed_at | TIMESTAMPTZ | NULLABLE | Momento real da confirmação |
+| confirmation_source | VARCHAR(20) | NULLABLE | tap \| qr \| photo \| manual |
+| confirmation_lat | DECIMAL(9,6) | NULLABLE | Local da confirmação |
+| confirmation_lng | DECIMAL(9,6) | NULLABLE | |
+| validation_status | VARCHAR(20) | DEFAULT 'pending' | pending \| valid \| invalid_time \| invalid_location \| missed |
+| validation_notes | VARCHAR(255) | NULLABLE | Motivo de invalidação |
+| created_at | TIMESTAMPTZ | DEFAULT NOW() | |
 
 ### 3.5 Domínio: Sistema RPG (HunterFit)
 
@@ -512,7 +539,7 @@ O HunterFit funciona para qualquer pessoa que frequenta academia ou se exercita 
 | new_rank | VARCHAR(30) | |
 | changed_at | TIMESTAMPTZ | DEFAULT NOW() |
 
-**Tabela: `muscle_volume_cache`** *(pós-MVP v1.1)*
+**Tabela: `muscle_volume_cache`** *(cache analítico de produção)*
 
 | Coluna | Tipo | Descrição |
 |--------|------|-----------|
@@ -717,11 +744,12 @@ Regex Exercise = new(@"^(.+?)\s*\|\s*(\d+)x([\d\-]+)\s*(?:\|\s*[Dd]escanso:\s*(\
 |-------|----------|------|-----------|
 | 1. Download | Online (Wi-Fi) | Clica "Baixar Treino de Hoje" | React Query + Axios |
 | 2. Cache | Browser | Treino + histórico de cargas salvos | Dexie.js |
-| 3. Execução | Offline | App lê do IndexedDB, exibe exercícios e GIFs | Dexie.js + Zustand |
-| 4. Registro | Offline | Usuário insere kg e reps por série | Dexie.js |
-| 5. Fila | Offline | Série concluída entra em `pendingSets` | Dexie.js |
-| 6. Sync | Online (reconexão) | Background sync envia fila para API | Service Worker |
-| 7. Confirmação | Online | API persiste dados, fila local é limpa | C# API |
+| 3. Mídia | Online (Wi-Fi) | GIFs e mídia offline permitida são pré-baixados | Cache Storage + Service Worker |
+| 4. Execução | Offline | App lê do IndexedDB, exibe exercícios e mídia offline | Dexie.js + Zustand |
+| 5. Registro | Offline | Usuário insere kg e reps por série | Dexie.js |
+| 6. Fila | Offline | Série concluída entra em `pendingSets` | Dexie.js |
+| 7. Sync | Online (reconexão) | Background sync envia fila para API | Service Worker |
+| 8. Confirmação | Online | API persiste dados, fila local é limpa | C# API |
 
 ### Schema Dexie.js
 
@@ -734,6 +762,7 @@ db.version(1).stores({
   pendingSets:    '++id, sessionId, exerciseId, syncStatus, createdAt',
   activeSessions: '++id, dayId, startedAt, syncStatus',
   cachedGifs:     '&exerciseId, url, cachedAt',
+  cachedVideos:   '&exerciseId, provider, cachedAt',
   // lastSession por exercício incluído no payload de download
   // exercises[n].lastSession = { date, sets: [{weight_kg, reps_done}] } | null
 });
@@ -781,6 +810,337 @@ Retorna: `{ last_date, avg_weight_kg, max_weight_kg, reps_summary }`
 | SO-04 | Conflict: série já no servidor | API 409; client marca synced sem duplicar |
 | SO-05 | Timer após série concluída | Banner flutuante aparece e sobrevive à troca de tela |
 | SO-06 | Volume Load ao longo do treino | 4×10×80kg = 3.200kg calculado corretamente |
+
+### Mídia de Exercícios — GIFs e Vídeos
+
+O HunterFit deve permitir ao usuário visualizar a execução dos exercícios por mídia curta.
+
+#### Fontes aceitas
+
+- GIF local ou curado pela plataforma
+- vídeo curado do YouTube
+- ambos, quando disponível
+
+#### Princípio de produto
+
+- o GIF é a mídia primária para consulta rápida
+- o vídeo do YouTube é a mídia secundária para explicação mais completa
+- o app não deve depender exclusivamente do YouTube para funcionar no treino
+
+#### Regras de uso
+
+1. Cada exercício pode ter:
+   - apenas GIF
+   - apenas vídeo do YouTube
+   - GIF + vídeo do YouTube
+2. Na tela do exercício:
+   - o GIF aparece inline quando existir
+   - o botão `Ver vídeo` aparece quando houver link do YouTube
+3. Se o usuário quiser aprender melhor a execução:
+   - ele pode abrir o vídeo completo
+4. A curadoria de links deve priorizar vídeos confiáveis, claros e estáveis
+
+### Download Offline de Mídia
+
+Para preservar dados móveis e tornar o modo offline previsível, o download de treino com mídia deve ser restrito por padrão ao Wi‑Fi.
+
+#### Regras
+
+1. O botão `Baixar treino` deve funcionar apenas em Wi‑Fi por padrão
+2. O download offline deve incluir:
+   - treino
+   - histórico
+   - GIFs
+   - mídia offline suportada
+3. Vídeos do YouTube não devem ser assumidos como baixáveis por padrão na primeira entrega de produção
+4. No modo offline:
+   - GIFs baixados continuam funcionando
+   - vídeos do YouTube podem não abrir se não houver internet
+5. Se um exercício tiver apenas YouTube e nenhuma mídia local:
+   - o app deve avisar que esse conteúdo depende de conexão
+
+#### Regra importante sobre YouTube
+
+Mesmo quando o treino for baixado em Wi‑Fi, o HunterFit não deve prometer baixar vídeos do YouTube para uso offline por padrão, porque isso depende de restrições técnicas e de plataforma.
+
+Na entrega inicial de produção:
+
+- baixar offline apenas GIFs e mídias próprias/curadas permitidas
+- tratar YouTube como mídia online complementar
+
+#### UX esperada
+
+```
+📥  DOWNLOAD DE DUNGEON
+
+Inclui:
+- treino completo
+- histórico de cargas
+- GIFs dos exercícios
+
+Observação:
+- vídeos do YouTube podem exigir internet mesmo após o download
+
+[BAIXAR AGORA]
+```
+
+### Adaptação do Treino em Tempo Real
+
+Nem sempre o usuário conseguirá executar exatamente o treino planejado do dia.
+
+Para aumentar aderência sem maquiar faltas, o HunterFit passa a ter duas ações rápidas no topo da tela de treino:
+
+- **Trocar Treino**
+- **Simplificar Treino**
+
+#### Princípio
+
+O app não deve fingir que o usuário cumpriu o plano original quando ele não cumpriu.
+
+Mas também não deve empurrar o usuário para uma falha completa se ele ainda consegue treinar alguma coisa.
+
+O foco é:
+
+- reduzir faltas desnecessárias
+- preservar consistência
+- manter honestidade do histórico
+- ajudar o usuário a treinar mesmo com pouco tempo
+
+### Botão 1 — Trocar Treino
+
+Esse botão permite trocar a dungeon atual por outra opção mais adequada ao momento do usuário.
+
+**Casos de uso:**
+
+- faltou o treino de ontem e quer recuperar peito hoje
+- não quer fazer perna hoje e prefere puxar costas
+- quer mover o descanso para outro dia da semana
+- a academia está cheia e ele prefere outro grupo muscular
+- o corpo está cansado para o treino planejado, mas ele ainda consegue treinar outro foco
+
+#### Regras
+
+1. Trocar treino **não apaga a falta original**
+2. O plano original continua registrado como não executado naquele dia
+3. A sessão executada fica marcada como:
+   - `swapped`
+   - com referência ao treino originalmente planejado
+4. O usuário pode trocar para:
+   - treino perdido da semana
+   - outro grupo muscular do plano atual
+   - treino sugerido pela IA com base em recuperação e agenda
+5. O app pode sugerir automaticamente a melhor troca:
+   - músculo negligenciado
+   - treino perdido mais importante da semana
+   - treino compatível com o tempo disponível
+
+#### UX esperada
+
+```
+⚙️  TROCAR DUNGEON
+
+Plano de hoje: Legs
+
+Opções disponíveis:
+
+1. Recuperar Push de ontem
+2. Fazer Pull hoje
+3. Mover descanso para hoje e treinar Legs amanhã
+4. Sistema escolhe a melhor substituição
+
+"A falta foi registrada.
+ Mas o Sistema ainda oferece um caminho."
+```
+
+#### Impacto no sistema
+
+- o calendário mostra que o treino planejado daquele dia não foi seguido
+- a nova sessão conta normalmente para treino, XP e volume
+- quests podem considerar:
+  - treino feito
+  - treino planejado não cumprido
+- a IA pode usar isso para sugerir reorganização da semana
+
+### Botão 2 — Simplificar Treino
+
+Esse botão ativa um **Modo Compacto**, em que a IA resume o treino planejado para uma versão menor, mais rápida e ainda útil.
+
+**Objetivo:** quando o usuário tem pouco tempo, ele ainda consegue fazer um treino válido em vez de faltar completamente.
+
+#### Regras
+
+1. A IA lê o treino planejado do dia
+2. Ela reduz o treino para o menor volume efetivo possível sem perder coerência
+3. A versão simplificada deve preservar:
+   - padrão de movimento principal
+   - músculo-alvo do dia
+   - pelo menos 1 exercício principal por foco importante
+4. O cardio do dia também pode ser simplificado:
+   - exemplo: 45min → 15–20min
+   - ou HIIT curto equivalente
+5. A sessão fica marcada como `condensed` ou `simplified`
+6. O histórico mostra que foi um treino adaptado, não o plano completo
+
+#### Exemplo
+
+**Treino original — Push**
+
+- Supino reto
+- Supino inclinado
+- Desenvolvimento
+- Elevação lateral
+- Tríceps polia
+- Tríceps francês
+- cardio 45min
+
+**Treino simplificado**
+
+- Supino reto
+- Desenvolvimento
+- Elevação lateral
+- Tríceps polia
+- cardio 15min
+
+Mensagem:
+
+> "Treino resumido pelo Sistema para caber no seu tempo. O importante é não faltar."
+
+#### Modos de simplificação
+
+| Modo | Duração alvo | Estratégia |
+|------|---------------|-----------|
+| **Leve** | 75–85% do treino original | Remove redundâncias |
+| **Compacto** | 50–60% do treino original | Mantém só o essencial |
+| **Emergencial** | 20–35% do treino original | Treino mínimo viável para não zerar o dia |
+
+#### Lógica da IA
+
+A simplificação considera:
+
+- tempo disponível informado pelo usuário
+- grupamento muscular do dia
+- importância dos exercícios no plano
+- fadiga acumulada
+- histórico recente
+- equipamentos disponíveis
+
+#### Critérios de seleção de exercícios
+
+Prioridade maior para:
+
+- exercícios compostos
+- exercício principal do músculo-alvo
+- exercícios com maior impacto em progressão
+
+Prioridade menor para:
+
+- redundâncias
+- isoladores menos críticos
+- volume acessório excedente
+
+#### UX esperada
+
+```
+⚡  MODO COMPACTO
+
+Você disse que tem apenas 35 minutos.
+
+O Sistema condensou sua dungeon:
+
+• Supino Reto — 4 séries
+• Desenvolvimento — 3 séries
+• Tríceps Polia — 3 séries
+• Cardio — 15min
+
+Volume estimado preservado: 62%
+Tempo estimado: 33min
+
+[ACEITAR TREINO COMPACTO]   [VER OUTRA VERSÃO]
+```
+
+#### Regras de honestidade
+
+- treino simplificado conta como treino válido
+- mas não conta como treino completo do plano original
+- o relatório semanal diferencia:
+  - `full`
+  - `swapped`
+  - `condensed`
+
+#### Sugestão de produto
+
+Essas duas features funcionam muito bem juntas:
+
+- `Trocar Treino` = mudar o foco do dia
+- `Simplificar Treino` = manter o foco, mas reduzir a carga de execução
+
+Na prática, isso cobre quase todos os casos reais de quem trabalha, estuda, atrasa ou perde um dia da semana.
+
+### Botão 3 — Substituir Exercício com IA
+
+Durante a execução do treino, cada exercício também pode ter uma ação direta de substituição.
+
+**Objetivo:** resolver rapidamente situações reais como:
+
+- máquina ocupada
+- equipamento indisponível
+- desconforto momentâneo no exercício
+- exercício que o usuário simplesmente não quer fazer naquele momento
+
+#### Princípio
+
+Toda substituição deve respeitar o objetivo fisiológico do treino.
+
+Ou seja, a IA não troca um exercício aleatoriamente. Ela sempre busca preservar:
+
+- músculo primário
+- padrão de movimento
+- tipo de estímulo
+- contexto do treino do dia
+
+#### Regras
+
+1. A substituição é válida apenas para a sessão atual, por padrão
+2. O exercício original continua registrado no plano base
+3. A IA deve sugerir substituições equivalentes com base em:
+   - músculo-alvo principal
+   - músculos secundários
+   - equipamento disponível
+   - lesões e restrições do usuário
+   - histórico de execução e preferência
+4. O usuário pode:
+   - aceitar a primeira sugestão da IA
+   - pedir outra opção
+   - remover o exercício da sessão se a IA entender que o volume mínimo do dia continua seguro
+5. Se a remoção comprometer demais o treino:
+   - a IA deve avisar
+   - e sugerir uma troca antes de permitir simplesmente excluir
+
+#### UX esperada
+
+```
+🔁  SUBSTITUIR EXERCÍCIO
+
+Exercício atual: Leg Press 45°
+Motivo: Máquina ocupada
+
+Sugestões do Sistema:
+
+1. Hack Squat
+2. Agachamento Guiado
+3. Afundo com Halteres
+
+"Todas as opções preservam o foco principal em quadríceps."
+
+[USAR OPÇÃO 1]   [VER OUTRA]   [REMOVER DA SESSÃO]
+```
+
+#### Regra de honestidade
+
+- a sessão registra que houve substituição
+- o relatório mostra qual exercício saiu e qual entrou
+- PRs, volume e XP passam a considerar o exercício realmente executado
+- o plano fixo só é alterado depois, se o usuário decidir manter a mudança
 
 ---
 
@@ -868,13 +1228,259 @@ Retorne SOMENTE JSON puro:
 | Tipo | Horário | Mensagem | Recorrência |
 |------|---------|----------|-------------|
 | TRT | 08:00 (config.) | *"O Sistema. Hora do TRT."* | Dia específico |
+| Medicação | Horário configurável | *"Hora da medicação. Confirme para validar."* | Diário ou dias específicos |
 | Suplemento | 07:00 e 20:00 | *"Tome seus suplementos."* | Diário |
 | Água | A cada 90min | *"Beba água! X/5.000ml. O Sistema está assistindo."* | Diário |
 | Refeição | Horários do plano | *"Hora da Refeição N."* | Diário |
 | Treino | 60min antes | *"Dungeon se abre em 1 hora. Prepare-se."* | Dias de treino |
 | Cardio | 06:30 | *"Cardio hoje. 45 minutos. Sem desculpas."* | Diário |
+| Download de treino/mídia | Horário configurável ou contexto | *"Você está no Wi‑Fi. Baixe a dungeon e os GIFs antes de sair."* | Configurável |
 | Daily Quest | 00:01 | *"DAILY QUEST DISPONÍVEL. 23h59 restantes."* | Diário |
 | Penalidade | Se falhou | *"VOCÊ FALHOU. Quest de Resgate: 24h."* | Quando triggered |
+
+### Lembretes de Medicação — Validação por Hora e Localização
+
+O HunterFit passa a suportar um tipo formal de lembrete de medicação, separado de suplemento, pensado para uso contínuo e com validação opcional.
+
+**Objetivo:** não apenas notificar, mas registrar se a tomada aconteceu dentro da janela correta e, opcionalmente, no local esperado.
+
+#### Regras
+
+1. O usuário pode criar lembretes do tipo `medication` com:
+   - nome do medicamento
+   - dose
+   - horário
+   - dias da semana
+   - janela de tolerância antes/depois
+   - confirmação obrigatória ou não
+   - validação por localização ou não
+2. A validação por hora funciona assim:
+   - exemplo: horário 08:00
+   - `window_before_minutes = 30`
+   - `window_after_minutes = 90`
+   - confirmação válida entre 07:30 e 09:30
+3. A validação por localização funciona via geofence:
+   - latitude/longitude salvas no lembrete
+   - raio configurável, ex: 80m
+   - confirmação fora do raio marca o evento como `invalid_location`
+4. Se o usuário confirmar fora da janela, o evento vira `invalid_time`
+5. Se confirmar dentro da janela e dentro do geofence, o evento vira `valid`
+6. Se não confirmar até o fim da janela, o evento vira `missed`
+7. O lembrete pode operar em três modos de disparo:
+   - `time_only`: notifica apenas pelo horário
+   - `location_only`: notifica ao entrar ou permanecer na área configurada
+   - `time_and_location`: notifica apenas quando as duas condições forem verdadeiras
+8. No modo `time_and_location`, a regra é composta:
+   - exemplo: "se passou das 20:00 e o usuário está em Casa, então notifique"
+   - o mesmo padrão pode ser usado para treino, cardio, refeição ou medicação
+9. O sistema deve permitir múltiplas localizações por lembrete em versões futuras:
+   - ex: Casa, Trabalho, Academia
+  - na primeira entrega de produção, uma localização principal por lembrete já cobre o caso principal
+
+### Lembrete de Download em Wi‑Fi
+
+O HunterFit também deve suportar um lembrete específico para download preventivo de treino e mídia.
+
+**Objetivo:** lembrar o usuário de baixar a dungeon e os GIFs antes de sair do Wi‑Fi confiável.
+
+#### Regras
+
+1. O lembrete de download pode usar:
+   - horário
+   - Wi‑Fi disponível
+   - localização
+   - combinação desses fatores
+2. Exemplo de regra útil:
+   - "se for 17:00, estiver em Casa e no Wi‑Fi, lembrar de baixar o treino de hoje"
+3. O lembrete só deve disparar quando houver Wi‑Fi, se estiver marcado como `wifi_required`
+4. O lembrete pode opcionalmente usar localização:
+   - Casa
+   - Trabalho
+   - outro local com Wi‑Fi confiável
+5. O CTA principal da notificação deve ser:
+   - `Baixar treino agora`
+6. O sistema deve evitar notificação inútil:
+   - se o treino do dia já estiver baixado, o lembrete não dispara
+
+#### Exemplo
+
+```
+📶  LEMBRETE DE DOWNLOAD
+
+"Você está no Wi‑Fi de Casa.
+Baixe agora sua dungeon e os GIFs para usar offline na academia."
+```
+
+#### Regras de Dupla Verificação
+
+Um lembrete pode usar dupla validação para reduzir notificações irrelevantes e aumentar precisão.
+
+**Exemplos:**
+
+- medicação noturna:
+  - horário base: 20:00
+  - localização: Casa
+  - lógica: só dispara se já passou de 20:00 e o usuário estiver em Casa
+- treino:
+  - horário base: 18:30
+  - localização: Academia
+  - lógica: se o usuário entrou na Academia e ainda não marcou treino, reforçar a notificação de iniciar a sessão
+- cardio:
+  - horário base: 06:30
+  - localização: área externa, parque ou academia
+  - lógica: se estiver na janela de cardio e em local compatível, reforçar a ação
+
+Se apenas uma condição for verdadeira:
+
+- `time_and_location`: não dispara a notificação principal
+- opcionalmente pode disparar uma notificação suave contextual:
+  - "Já passou do horário, mas você ainda não está em Casa."
+  - "Você chegou na Academia, mas ainda está fora da janela configurada."
+
+#### UX esperada
+
+- Notificação push no horário configurado
+- Botão rápido: `Confirmar tomada`
+- Se `validation_mode = time_and_location`, o app tenta validar GPS no momento da confirmação
+- Se o GPS falhar, o app informa que a confirmação foi registrada, mas ficou `pending_location_check` até revalidação local
+- Histórico visual com:
+  - válidos
+  - atrasados
+  - fora do local
+  - perdidos
+
+#### Casos de uso úteis
+
+- TRT em casa em dias específicos
+- antibiótico com janela rígida
+- medicação que precisa ser tomada no trabalho ou em casa
+- protocolo pós-refeição com confirmação por horário
+
+### Perfis de Intensidade de Notificação
+
+Cada lembrete passa a ter um perfil de insistência configurável pelo usuário.
+
+**Objetivo:** algumas pessoas querem lembretes discretos; outras preferem que o app insista até a ação ser concluída.
+
+#### Campo novo sugerido em `reminders`
+
+| Coluna | Tipo | Constraint | Descrição |
+|--------|------|-----------|-----------|
+| notification_intensity | VARCHAR(20) | DEFAULT 'balanced' | light \| balanced \| persistent \| relentless |
+| escalation_interval_minutes | INT | DEFAULT 20 | Intervalo entre reforços |
+| escalation_max_attempts | INT | DEFAULT 3 | Máximo de reforços |
+| escalation_stop_rule | VARCHAR(20) | DEFAULT 'until_confirmed' | until_confirmed \| until_disabled \| until_window_end |
+| wifi_required | BOOLEAN | DEFAULT FALSE | Só dispara quando houver Wi‑Fi |
+
+#### Perfis
+
+| Perfil | Comportamento |
+|--------|---------------|
+| `light` | Notifica 1 vez e no máximo 1 lembrete extra leve |
+| `balanced` | Notifica e reforça algumas vezes dentro da janela |
+| `persistent` | Insiste várias vezes até confirmar, desativar ou acabar a janela |
+| `relentless` | Modo agressivo; pode bombardear o usuário de forma intencional até ele agir ou desativar |
+
+#### Regras de Escalada
+
+1. O primeiro push dispara quando a regra principal do lembrete é satisfeita
+2. Se o usuário não confirmar:
+   - o sistema agenda reforços conforme `escalation_interval_minutes`
+3. A escalada para quando:
+   - o usuário confirma
+   - o usuário toca em `silenciar hoje`
+   - o usuário desativa o lembrete
+   - a janela válida termina
+4. Em modo `relentless`, o sistema pode:
+   - aumentar frequência
+   - alterar o texto para mais urgente
+   - destacar o lembrete como pendente crítico no dashboard
+5. Em modo `light`, o sistema deve evitar spam:
+   - no máximo 1 push principal
+   - no máximo 1 reforço curto
+
+#### Personalidade da Notificação
+
+O usuário pode escolher não apenas o tom narrativo, mas também a intensidade prática.
+
+Isso separa dois conceitos:
+
+- `notification_tone`:
+  - como o app fala
+  - ex: épico, equilibrado, minimalista
+- `notification_intensity`:
+  - o quanto o app insiste
+  - ex: leve, balanceado, persistente, agressivo
+
+#### Ações rápidas na notificação
+
+Toda notificação de lembrete importante deve idealmente suportar:
+
+- `Confirmar agora`
+- `Adiar 10 min`
+- `Silenciar hoje`
+- `Pegar mais leve`
+- `Desativar lembrete`
+
+#### Adaptação Inteligente
+
+O sistema pode aprender o padrão do usuário ao longo do tempo.
+
+Exemplo:
+
+- se o usuário sempre confirma na 3ª notificação, o app pode sugerir:
+  - mudar o horário
+  - aumentar ou reduzir insistência
+  - trocar para validação por localização
+- se o usuário frequentemente ignora lembretes agressivos, o coach pode sugerir modo `balanced`
+- se o usuário quer disciplina máxima, o coach pode sugerir `persistent` ou `relentless`
+
+#### Exemplos de comportamento
+
+**Exemplo 1 — medicação, modo agressivo**
+
+- tipo: `medication`
+- regra: `time_and_location`
+- horário: 20:00
+- local: Casa
+- intensidade: `relentless`
+- comportamento:
+  - 20:00: se estiver em Casa, notifica
+  - 20:10: reforça
+  - 20:20: reforça com texto mais urgente
+  - 20:30+: mantém lembretes até confirmar, silenciar, desativar ou encerrar a janela
+
+**Exemplo 2 — treino, modo equilibrado**
+
+- tipo: `workout`
+- regra: `time_only`
+- horário: 18:00
+- intensidade: `balanced`
+- comportamento:
+  - 17:00: lembrete pré-treino
+  - 18:00: lembrete principal
+  - 18:20: reforço se ainda não iniciou a dungeon
+  - depois disso, para ao fim da janela
+
+**Exemplo 3 — treino, dupla verificação**
+
+- tipo: `workout`
+- regra: `time_and_location`
+- horário: 18:00
+- local: Academia
+- intensidade: `persistent`
+- comportamento:
+  - se chegou na Academia dentro da janela e ainda não iniciou treino, reforça bastante
+  - se já passou da hora mas ainda não está na Academia, pode mandar um aviso contextual suave
+
+#### Critérios de aceite — lembretes inteligentes
+
+- usuário consegue escolher disparo por horário, localização ou ambos
+- usuário consegue escolher intensidade do lembrete
+- o sistema para de insistir quando houver confirmação, desativação ou fim da janela
+- o sistema pode insistir fortemente quando o usuário selecionar modo agressivo
+- treino e medicação suportam a mesma lógica de dupla verificação
+- o usuário consegue reduzir a agressividade diretamente pela própria notificação
 
 ---
 
@@ -930,6 +1536,59 @@ volume_load_kg DECIMAL(8,2) GENERATED ALWAYS AS (weight_kg * reps_done) STORED
 - `GET /api/exercises/:id/alternatives` retorna lista + carga histórica do usuário
 - Substituição válida apenas para a sessão corrente (não altera plano permanente)
 
+### Atualização Inteligente de Treinos pela IA
+
+O HunterFit também deve tratar o treino como algo vivo, não estático.
+
+A IA de treino acompanha o usuário ao longo do tempo e periodicamente pergunta se ele quer manter, ajustar ou trocar o plano atual.
+
+#### Fluxo esperado
+
+1. Após um ciclo mínimo de uso do treino atual:
+   - ex: 2 a 6 semanas, ou volume suficiente para análise
+2. A IA pergunta:
+   - "Quer manter seu treino atual ou testar uma evolução?"
+3. Se o usuário quiser mudar:
+   - a IA gera uma nova sugestão completa
+   - mostra a estrutura para aprovação
+4. O usuário pode:
+   - aceitar tudo
+   - substituir exercícios específicos
+   - remover exercícios
+   - pedir outra versão
+5. O plano só é atualizado após aprovação explícita
+
+#### O que a IA considera
+
+- objetivo atual
+- progresso de carga
+- aderência real ao plano
+- tempo médio de treino
+- exercícios frequentemente pulados ou substituídos
+- dores, lesões e limitações
+- acesso a equipamentos
+- ganho de massa, perda de gordura e peso corporal
+
+#### Exemplo de UX
+
+```
+🧠  EVOLUÇÃO DE TREINO DISPONÍVEL
+
+O Sistema analisou suas últimas 4 semanas.
+
+Detectado:
+- boa progressão em peito e costas
+- baixa aderência em exercícios longos de perna
+- tempo médio real de treino: 47min
+
+Sugestão:
+- manter Push/Pull
+- encurtar Legs
+- trocar 2 isoladores pouco usados
+
+[VER NOVO TREINO]   [MANTER COMO ESTÁ]
+```
+
 ### Exportação CSV
 
 `GET /api/export/all-data` → ZIP com:
@@ -948,7 +1607,7 @@ hunterfit-export-2025-03-20.zip
 
 Implementado com `System.IO.Compression` nativo do .NET.
 
-### TDEE Adaptativo (v1.1 — Pós-MVP)
+### TDEE Adaptativo (v1.1 — Evolução de Produção)
 
 ```
 // Requisito: 5 pesagens + 5 logs nos últimos 7 dias
@@ -959,7 +1618,7 @@ TDEE_real   = Kcal_media - (Delta_kcal / 7)
 Nova_meta   = TDEE_real - caloric_deficit_target
 ```
 
-### Heatmap de Fadiga Muscular (v1.1 — Pós-MVP)
+### Heatmap de Fadiga Muscular (v1.1 — Evolução de Produção)
 
 ```
 fatigue_score = VL_3dias / VL_baseline
@@ -1626,8 +2285,13 @@ Gerado toda segunda-feira às 08:00. Compartilhável como card.
 | POST | `/api/sessions` | Iniciar sessão (dungeon) | Bearer |
 | PUT | `/api/sessions/:id/sets` | Atualizar séries (sync offline) | Bearer |
 | POST | `/api/sessions/sync` | Sync idempotente em lote | Bearer |
+| POST | `/api/workout/swap-options` | Sugerir opções de troca de treino para hoje | Bearer |
+| POST | `/api/workout/swap` | Executar treino alternativo sem apagar a falta original | Bearer |
+| POST | `/api/workout/condense` | Gerar versão simplificada do treino do dia | Bearer |
+| POST | `/api/workout/download-package` | Gerar pacote offline do treino com GIFs e mídias suportadas | Bearer |
 | GET | `/api/exercises/:id/last-session` | Histórico da última sessão | Bearer |
 | GET | `/api/exercises/:id/alternatives` | Alternativas com carga histórica | Bearer |
+| GET | `/api/exercises/:id/media` | Retornar GIF, vídeo do YouTube e disponibilidade offline | Bearer |
 | POST | `/api/import/workout-txt` | Parser de treino | Bearer |
 | POST | `/api/import/diet-txt` | Parser de dieta | Bearer |
 | POST | `/api/body/analyze-image` | IA extrai dados (sem salvar) | Bearer |
@@ -1644,7 +2308,12 @@ Gerado toda segunda-feira às 08:00. Compartilhável como card.
 | POST | `/api/strava/sync` | Forçar sync manual | Bearer |
 | GET | `/api/export/all-data` | Download ZIP com todos os CSVs | Bearer |
 | GET/POST/PUT/DELETE | `/api/reminders` | CRUD de lembretes | Bearer |
+| GET | `/api/reminders/today` | Lista lembretes e validações do dia | Bearer |
+| POST | `/api/reminders/:id/confirm` | Confirmar lembrete com validação de hora/local | Bearer |
+| GET | `/api/reminders/:id/history` | Histórico de confirmações do lembrete | Bearer |
 | POST | `/api/notifications/subscribe` | Registrar push subscription (VAPID) | Bearer |
+| GET | `/api/user/weight-unit` | Obter unidade de peso ativa (`kg` ou `lb`) | Bearer |
+| PUT | `/api/user/weight-unit` | Atualizar unidade de peso ativa | Bearer |
 | GET | `/api/hunter/profile` | Perfil completo do Hunter (rank, stats, shadow army) | Bearer |
 | GET | `/api/hunter/xp-events` | Feed de XP ganho | Bearer |
 | POST | `/api/hunter/distribute-stats` | Distribuir Stat Points | Bearer |
@@ -1657,6 +2326,184 @@ Gerado toda segunda-feira às 08:00. Compartilhável como card.
 | GET | `/api/hunter/weekly-report` | Relatório semanal | Bearer |
 | GET | `/api/hunter/prs` | Personal records de todos os exercícios | Bearer |
 | POST | `/api/hunter/class` | Trocar classe (1x/mês) | Bearer |
+
+---
+
+### 27.1 Requisitos Não Funcionais — Segurança, Robustez e Backend
+
+Estes requisitos passam a ser parte formal da especificação do HunterFit.
+
+#### Autenticação e sessão
+
+1. O app não deve depender de `localStorage` para guardar o JWT principal em produção
+2. A autenticação web deve preferir:
+   - cookie `HttpOnly`
+   - `Secure`
+   - `SameSite=Lax` ou mais restritivo quando possível
+3. O middleware web e a API devem usar a mesma estratégia de sessão
+4. Logout e troca de senha devem invalidar sessões anteriores
+5. A arquitetura final deve preferir:
+   - access token curto
+   - refresh token rotativo
+   - revogação explícita
+
+#### Proteção contra abuso
+
+1. Endpoints de autenticação devem ter rate limiting
+2. Regra mínima de produção:
+   - login: 5 tentativas por IP por minuto
+   - register: limite por IP para evitar abuso automatizado
+3. O backend deve registrar tentativas bloqueadas em log estruturado
+
+#### CORS e superfície de ataque
+
+1. A API deve configurar CORS explicitamente
+2. Em produção, apenas o domínio do frontend e ambientes autorizados podem acessar a API via browser
+3. Ambientes locais podem ter política separada de desenvolvimento
+
+#### Limites de payload e importação
+
+1. Endpoints de importação de treino e dieta devem ter limite de tamanho
+2. O parser não pode aceitar payloads arbitrariamente grandes
+3. O backend deve rejeitar o payload com erro claro quando exceder o limite definido
+4. Regra sugerida para produção:
+   - limite de texto de import entre `20.000` e `50.000` caracteres
+
+#### Exclusão de conta
+
+1. `DeleteAccount` não deve apagar permanentemente o usuário imediatamente em produção
+2. O fluxo deve usar `soft delete`
+3. Campos sugeridos:
+   - `is_deleted`
+   - `deleted_at`
+   - `scheduled_purge_at`
+4. Deve existir janela de recuperação antes da exclusão definitiva
+
+#### Timezone
+
+1. Operações que dependem de "hoje" ou dia da semana não podem usar apenas UTC bruto
+2. O treino do dia, quests diárias e lembretes devem considerar o fuso do usuário
+3. O sistema deve armazenar ou inferir um timezone principal por usuário
+
+#### Performance e consistência
+
+1. Endpoints de sync em lote não devem executar loops com queries individuais quando houver alternativa em batch
+2. Eventos de XP devem ser persistidos no banco para alimentar o feed e relatórios
+3. O backend deve registrar falhas permanentes de sync, não apenas reter itens silenciosamente
+
+### 27.2 Requisitos Funcionais Complementares por Módulo
+
+Estes pontos passam a complementar as seções funcionais já descritas anteriormente.
+
+#### Módulo A — Parser TXT
+
+- `POST /api/import/diet-txt` deve sair do estado stub e ter implementação real
+- o parser de dieta deve suportar pelo menos:
+  - refeições
+  - macros
+  - kcal
+  - suplementos quando informados no texto
+- o parser deve validar tamanho do payload antes de processar
+
+#### Módulo B — Offline-First
+
+- a UI deve mostrar quantos itens estão pendentes na fila de sync
+- o usuário deve ver claramente quando está em modo offline
+- se o sync falhar após o máximo de tentativas:
+  - o app deve avisar
+  - permitir retry manual
+  - evitar fila "presa" sem feedback
+
+#### Módulo C — IA Vision
+
+- as páginas de import por IA devem ser acessíveis pela navegação normal
+- `/nutrition` deve ter CTA para scan nutricional
+- `/body` deve ter CTA para análise corporal por IA
+- a validação fisiológica deve ser robusta o suficiente para bloquear valores impossíveis ou incoerentes
+
+#### Módulo D — RPG e Progressão
+
+- `SkillDetectionService` deve existir de forma real, não stub
+- skills reais devem poder ser desbloqueadas automaticamente
+- `PenaltyService` deve ter lógica completa de penalidade e resgate
+- testes de rank devem ter geração, execução e validação
+- sagas devem ter progressão rastreável
+- títulos devem ter:
+  - tela de visualização
+  - ação de equipar
+
+#### Módulo E — Notificações
+
+- geofence real deve existir para os casos previstos de treino e medicação
+- lembretes escalonados devem ser suportados de ponta a ponta
+- horários salvos de TRT/suplemento precisam virar agendamento real de push
+- dupla verificação com contexto de treino/cardio deve ser implementável no backend
+
+#### Módulo F — Gráficos
+
+- heatmap de fadiga muscular faz parte da roadmap formal
+- gráfico de volume por exercício deve existir
+- `MacroTrendChart` deve existir com evolução calórica e de macros
+- gráfico de evolução de XP deve existir
+- strength level comparativo deve ser visualizável
+
+### 27.3 Jornada Inicial e UX Obrigatória
+
+Além das features, a spec passa a exigir uma jornada básica clara para o usuário comum.
+
+#### Primeiro acesso
+
+1. Após o onboarding, o app não deve parecer vazio
+2. O primeiro acesso deve guiar o usuário para:
+   - criar ou importar treino
+   - revisar metas nutricionais
+   - configurar lembretes
+3. Se o plano ainda não foi criado:
+   - o texto de conclusão não pode fingir que ele já existe
+
+#### Início do treino
+
+1. O dashboard deve oferecer um CTA direto para começar o treino do dia
+2. Esse card deve mostrar:
+   - nome do dia
+   - grupamento principal
+   - quantidade de exercícios
+
+#### Terminologia
+
+1. O app pode manter a fantasia Solo Leveling
+2. Mas os CTAs principais devem continuar claros para não-gamers
+3. Exemplo esperado:
+   - `Começar Treino`
+   - subtítulo menor: `Entrar na Dungeon`
+
+#### Dias de descanso
+
+1. Dias de descanso não devem parecer "botões quebrados"
+2. Ao tocar, o usuário deve receber contexto:
+   - descanso
+   - recuperação
+   - cardio leve opcional
+
+#### Quests e navegação
+
+1. Quests devem ser acessíveis facilmente pela navegação diária
+2. O dashboard deve apontar corretamente para a tela de quests quando existir quest ativa
+
+#### Importação de treino
+
+1. O fluxo de import por TXT deve ser amigável para iniciantes
+2. A tela deve oferecer templates prontos na primeira versão de produção, como:
+   - Full Body 3x
+   - Upper/Lower 4x
+   - PPL 5x
+
+#### Inputs e acessibilidade
+
+1. Data de nascimento deve usar seletor apropriado, não texto livre ISO quando isso prejudicar a UX mobile
+2. Configurações devem estar acessíveis por navegação visível
+3. Estados de erro críticos devem ter botão de retry
+4. Ranks musculares devem ter explicação do que significam e como evoluem
 
 ---
 
@@ -1684,6 +2531,13 @@ Gerado toda segunda-feira às 08:00. Compartilhável como card.
 | SkillDetectionService | CheckRealSkills() | 10 reps em Barra Fixa → Pull-up Mastery detectada |
 | ExportService | BuildZipExport() | ZIP contém todos os 8 arquivos CSV |
 | ExerciseSubstitutionService | GetAlternatives() | Ordenadas por similarity_score DESC |
+| AuthController / Auth service | Login() | Rate limit bloqueia abuso após limite |
+| AuthController / Auth service | Logout() | Sessão/token revogados corretamente |
+| WorkoutController | GetToday() | Usa timezone do usuário, não UTC bruto |
+| ImportController | ImportDietTxt() | Dieta parseada com sucesso |
+| ImportController | ImportWorkoutTxt() | Payload acima do limite retorna erro apropriado |
+| Sync service | SyncBatch() | Falha permanente gera estado visível ao usuário |
+| Notification scheduler | ScheduleReminders() | TRT e suplemento geram agendamento real |
 
 ### Testes de Componentes — Frontend
 
@@ -1696,6 +2550,12 @@ Gerado toda segunda-feira às 08:00. Compartilhável como card.
 | XpEventFeed | PR detectado | Notificação visual em tempo real |
 | HunterProfile | Level up | Animação de level up disparada |
 | ShadowArmy | Streak quebrada | Sombra cai em batalha |
+| Workout page | Erro de carregamento | Exibe botão de retry funcional |
+| Dashboard | Primeiro acesso | Exibe fluxo guiado inicial |
+| Nutrition page | CTA IA Vision | Usuário consegue navegar para scan nutricional |
+| Body page | CTA IA Vision | Usuário consegue navegar para scan corporal |
+| Rest day card | Toque em dia de descanso | Modal ou sheet explicativa aparece |
+| Settings access | Dashboard/Hunter | Configurações acessíveis por CTA visível |
 
 ---
 
@@ -1749,6 +2609,20 @@ Gerado toda segunda-feira às 08:00. Compartilhável como card.
 | 28 | Todos os testes unitários passando no CI | QA | ☐ |
 | 29 | Dados de seed para os 20 dias carregados | QA | ☐ |
 | 30 | Sentry configurado com evento de teste | Infra | ☐ |
+| 31 | Login usa sessão segura sem depender de localStorage | Segurança | ☐ |
+| 32 | Endpoints de auth com rate limiting ativo | Segurança | ☐ |
+| 33 | CORS restrito ao frontend oficial em produção | Segurança | ☐ |
+| 34 | Parser de dieta implementado de ponta a ponta | MOD-A | ☐ |
+| 35 | Indicador visual de fila de sync aparece offline/online | MOD-B | ☐ |
+| 36 | Falha permanente de sync mostra erro e retry manual | MOD-B | ☐ |
+| 37 | CTA para IA Vision existe em Nutrição e Corpo | MOD-C | ☐ |
+| 38 | SkillDetectionService desbloqueia skills automaticamente | RPG | ☐ |
+| 39 | Sagas progridem e títulos podem ser equipados | RPG | ☐ |
+| 40 | Lembretes de TRT/suplemento geram agendamento real | MOD-E | ☐ |
+| 41 | Heatmap de fadiga e gráfico de XP disponíveis | MOD-F | ☐ |
+| 42 | Dashboard mostra CTA direto para começar treino | UX | ☐ |
+| 43 | Conclusão do onboarding não promete plano inexistente | UX | ☐ |
+| 44 | Templates de treino aparecem na importação por TXT | UX | ☐ |
 
 ---
 
@@ -1926,12 +2800,59 @@ Sem precisar de toggle manual. *"A Dungeon não deixa você dormir."*
 - Acessível pelo botão de carga durante o treino (ícone de anilha ao lado do campo de peso)
 - Configurável com as anilhas disponíveis na academia do usuário
 - Persiste a configuração do usuário offline (Dexie.js)
+- Deve suportar cálculo em **quilogramas e libras**
+- O usuário pode escolher a unidade padrão do app:
+  - `kg`
+  - `lb`
+- A calculadora deve converter corretamente barra, anilhas e halteres conforme a unidade ativa
+
+#### Regras de unidade
+
+1. O app deve permitir configuração global de unidade:
+   - peso corporal
+   - cargas de treino
+   - plate calculator
+   - dumbbell calculator
+2. A lógica interna pode armazenar em kg, mas a UI deve respeitar a unidade escolhida
+3. A troca de unidade deve refletir:
+   - histórico
+   - sugestões da IA
+   - gráficos
+   - PRs
+4. No caso de halteres, o cálculo deve considerar:
+   - peso por halter
+   - peso total do par, quando fizer sentido mostrar
+
+#### Dumbbell Calculator
+
+O HunterFit também passa a ter cálculo equivalente para halteres, não apenas para barra.
+
+Exemplos:
+
+- `Rosca Alternada: 35 lb por lado`
+- `Supino Halteres: 32 kg por halter`
+
+#### Exemplo de UX
+
+```
+⚙️  CALCULADORA DE CARGA
+
+Unidade: lb
+
+Exercício: Supino com Halteres
+Meta: 70 lb por halter
+
+"O Sistema converteu sua meta para a unidade atual."
+```
 
 **DB change:**
 ```sql
 -- Na tabela users / hunter_profiles:
 available_plates_kg JSONB DEFAULT '[20,10,5,2.5,1.25,1,0.5]'
 barbell_weight_kg   DECIMAL(4,1) DEFAULT 20
+preferred_weight_unit VARCHAR(5) DEFAULT 'kg'
+available_plates_lb JSONB DEFAULT '[45,25,10,5,2.5]'
+barbell_weight_lb   DECIMAL(5,1) DEFAULT 45
 ```
 
 ---
@@ -2436,8 +3357,8 @@ Nem tudo que o Hevy faz é relevante para o HunterFit. Análise honesta do que d
 
 | Feature Hevy | Decisão | Motivo |
 |-------------|---------|--------|
-| **Social media genérico** (like, follow de desconhecidos, discovery sem contexto) | ⚠️ Adaptado | Mantemos social mas com contexto RPG — rank, XP, sombras visíveis. Feed de desconhecidos não é prioridade no MVP |
-| **Apple Watch / Wear OS integration** | ❌ Fora do escopo | PWA não acessa Watch APIs nativas. Pós-MVP se o app virar nativo |
+| **Social media genérico** (like, follow de desconhecidos, discovery sem contexto) | ⚠️ Adaptado | Mantemos social mas com contexto RPG — rank, XP, sombras visíveis. Discovery amplo de desconhecidos não é prioridade da primeira release |
+| **Apple Watch / Wear OS integration** | ❌ Fora do escopo atual | PWA não acessa Watch APIs nativas. Só faria sentido numa futura versão nativa |
 | **Planos de treino pré-prontos da biblioteca** | ❌ Desnecessário | Nosso usuário importa seu treino via TXT de nutricionista. Biblioteca de planos seria ruído |
 | **Cardio tracking (distância, tempo de corrida)** | ✅ Já temos | Strava faz melhor — integramos via API |
 | **Programa de coach para clientes** | ❌ Fora do escopo | Feature B2B que requer arquitetura diferente. Não é nosso público |
@@ -2752,6 +3673,23 @@ Quer algo motivador que não seja intimidador
 
 O onboarding não é um formulário — é uma **conversa com a IA Coach**. O Sistema faz perguntas inteligentes, interpreta as respostas em linguagem natural e monta o perfil completo do usuário automaticamente.
 
+Além de identificar nível, objetivo e contexto do usuário, o onboarding também define **quais módulos do HunterFit a pessoa realmente quer usar**.
+
+Isso é essencial porque o app foi pensado para **todos os públicos**, e nem todo mundo quer a experiência completa desde o primeiro dia.
+
+Alguns usuários querem:
+
+- só nutrição e calorias
+- só registrar treinos
+- sugestões de treino
+- desafios em estilo RPG
+- lembretes de medicação
+- progresso corporal
+- cardio com Strava
+- tudo junto
+
+Por isso, o HunterFit passa a ter uma **Camada de Personalização Modular**, escolhida já no onboarding inicial e editável depois nas configurações.
+
 ### Fluxo do Onboarding
 
 ```
@@ -2769,9 +3707,262 @@ O onboarding não é um formulário — é uma **conversa com a IA Coach**. O Si
 └─────────────────────────────────────────────────────┘
 ```
 
+### Camada de Personalização Modular
+
+Depois de entender objetivo, rotina e experiência do usuário, a IA Coach apresenta uma etapa de personalização por módulos.
+
+Essa etapa funciona como uma seleção por **checkboxes**, em que o usuário pode marcar uma ou várias opções.
+
+O usuário também pode escolher:
+
+- **uma única função principal**
+- **algumas funções específicas**
+- **ou ativar tudo**
+
+#### Princípio
+
+O HunterFit não deve forçar a experiência completa para todos.
+
+O app deve conseguir funcionar como:
+
+- app de nutrição
+- app de treino
+- app de sugestões de treino
+- app de desafio RPG
+- app de lembretes
+- app de acompanhamento corporal
+- app híbrido com tudo junto
+
+#### Módulos selecionáveis no onboarding
+
+| Módulo | Descrição |
+|--------|-----------|
+| **Nutrição e Calorias** | Controle de calorias, macros, água, metas nutricionais e importação por IA |
+| **Registro de Treinos** | Log manual de treino, séries, cargas, histórico, PRs, timer e volume |
+| **Sugestão de Treinos** | IA Coach recomenda divisões, treinos e ajustes conforme objetivo e nível |
+| **Modo RPG / Desafios** | XP, rank, quests, dungeons, penalidades, títulos e progressão gamificada |
+| **Lembretes Inteligentes** | Notificações de treino, cardio, refeição, água, suplemento e medicação |
+| **Acompanhamento Corporal** | Peso, bioimpedância, medidas, gráficos e alertas |
+| **Cardio e Integrações** | Cardio tracker, integração com Strava e validação automática |
+| **Modo Completo** | Ativa todos os módulos acima |
+
+#### Regras de seleção
+
+1. A interface usa checkboxes, não radio buttons
+2. O usuário pode marcar quantos módulos quiser
+3. Se marcar `Modo Completo`, todos os módulos são ativados automaticamente
+4. Se marcar módulos individuais e depois `Modo Completo`, o app trata como experiência completa
+5. O usuário pode revisar essa escolha a qualquer momento em `Configurações > Personalização do App`
+
+#### Exemplos práticos
+
+**Usuário A — só nutrição**
+
+- marca:
+  - `Nutrição e Calorias`
+  - `Lembretes Inteligentes`
+- experiência:
+  - dashboard focado em macros, água e refeições
+  - treino e RPG ficam ocultos ou despriorizados
+
+**Usuário B — só treino**
+
+- marca:
+  - `Registro de Treinos`
+- experiência:
+  - dashboard vira um tracker direto
+  - sem pressão de nutrição
+  - sem gamificação obrigatória
+
+**Usuário C — treino + sugestão**
+
+- marca:
+  - `Registro de Treinos`
+  - `Sugestão de Treinos`
+- experiência:
+  - registra treino
+  - recebe sugestões e adaptações da IA Coach
+
+**Usuário D — quer desafio e motivação**
+
+- marca:
+  - `Registro de Treinos`
+  - `Modo RPG / Desafios`
+  - `Lembretes Inteligentes`
+- experiência:
+  - tudo gira em torno de quests, ranks, XP e constância
+
+**Usuário E — quer tudo**
+
+- marca:
+  - `Modo Completo`
+- experiência:
+  - acesso total ao HunterFit na palma da mão
+
+#### Efeito da seleção modular no app
+
+Os módulos escolhidos no onboarding influenciam:
+
+- a ordem das telas
+- o dashboard principal
+- os cards em destaque
+- o tom da IA Coach
+- as notificações sugeridas
+- as quests oferecidas
+- os lembretes habilitados por padrão
+- a complexidade inicial da interface
+
+#### Personalização da Home
+
+Com base nos módulos selecionados, o dashboard inicial muda.
+
+Exemplos:
+
+- **modo nutrição-first**:
+  - calorias
+  - proteínas
+  - água
+  - refeições
+  - lembretes alimentares
+- **modo treino-first**:
+  - treino do dia
+  - timer
+  - PRs
+  - histórico
+  - sugestões de progressão
+- **modo RPG-first**:
+  - rank
+  - XP
+  - daily quests
+  - dungeon disponível
+  - shadow army
+- **modo corpo-first**:
+  - peso
+  - gordura
+  - massa muscular
+  - alertas
+  - progresso visual
+
+#### Complexidade Progressiva
+
+Mesmo quando o usuário ativa muitos módulos, o app pode liberar a complexidade em camadas:
+
+- primeiros dias: foco no essencial
+- depois: introdução gradual de recursos avançados
+
+Isso evita sobrecarga em iniciantes sem limitar usuários avançados.
+
 ### As 12 Perguntas do Onboarding
 
 O onboarding é conversacional — a IA adapta a próxima pergunta com base na resposta anterior. A sequência abaixo é o fluxo padrão.
+
+### Pergunta Extra — Módulos do App que o Usuário Quer Ativar
+
+Além das 12 perguntas base, o onboarding ganha uma etapa de seleção modular.
+
+**Pergunta:**
+
+> "Quais partes do HunterFit você quer usar?"
+
+**Formato:**
+- lista de checkboxes
+
+**Opções:**
+- Nutrição e calorias
+- Registro de treinos
+- Sugestão de novos treinos
+- Desafios estilo RPG
+- Lembretes inteligentes
+- Acompanhamento corporal
+- Cardio e integrações
+- Quero tudo
+
+**Regra:**
+- pode selecionar uma, várias ou todas
+
+### Dados Corporais Sensíveis — Sempre Opcionais
+
+Para atender todos os públicos, o onboarding não deve exigir dados corporais íntimos ou desconfortáveis para funcionar.
+
+O usuário pode informar esses dados se quiser melhorar a personalização, mas o app deve funcionar normalmente sem eles.
+
+**Dados que devem ser opcionais:**
+
+- peso atual
+- medidas corporais
+- percentual de gordura
+- circunferências
+- tamanho de roupas
+- fotos corporais
+- dados de bioimpedância
+
+**Princípio de UX:**
+
+- o app pede esses dados como opcionais
+- explica por que eles ajudam
+- nunca bloqueia o uso caso o usuário prefira não informar
+
+**Exemplo de texto:**
+
+> "Se quiser, você pode informar peso, medidas ou até tamanho de roupas para melhorar a personalização. Mas isso é opcional — o app funciona normalmente sem esses dados."
+
+#### Regras
+
+1. O onboarding nunca deve travar por ausência de medidas ou tamanhos de roupa
+2. O sistema deve marcar esses campos como `optional`
+3. A IA Coach deve adaptar recomendações mesmo com dados incompletos
+4. O usuário pode preencher essas informações depois, em `Body` ou `Configurações`
+5. O sistema deve evitar linguagem constrangedora ao solicitar esses dados
+
+### Resultado do Onboarding com Personalização
+
+Ao final do onboarding, a IA Coach não retorna só o perfil físico e comportamental do usuário.
+
+Ela também retorna o **perfil de uso do app**.
+
+Exemplo:
+
+```json
+{
+  "user_profile": {
+    "goal": "fat_loss",
+    "experience_level": "beginner",
+    "training_location": "full_gym"
+  },
+  "app_profile": {
+    "selected_modules": [
+      "nutrition",
+      "smart_reminders",
+      "body_tracking"
+    ],
+    "dashboard_mode": "nutrition_first",
+    "gamification_enabled": false,
+    "workout_logging_enabled": false
+  }
+}
+```
+
+#### Regras derivadas
+
+- se `Modo RPG / Desafios` não for selecionado:
+  - o app pode ocultar XP, rank, penalidade e quests da UI principal
+- se `Nutrição e Calorias` não for selecionado:
+  - macros e metas calóricas não são destaque inicial
+- se `Registro de Treinos` não for selecionado:
+  - a home não gira em torno da dungeon
+- se `Lembretes Inteligentes` for selecionado:
+  - o app já sugere lembretes no onboarding
+- se `Modo Completo` for selecionado:
+  - todos os módulos ficam ativos
+
+#### Critérios de aceite — personalização modular
+
+- o onboarding deve permitir seleção por checkbox
+- o usuário pode ativar múltiplos módulos
+- o usuário pode ativar tudo
+- a home e a navegação inicial refletem a seleção feita
+- a personalização continua editável depois do onboarding
+- o app deve funcionar bem mesmo com apenas 1 módulo ativo
 
 ---
 
@@ -3084,6 +4275,84 @@ Após as 12 perguntas, o backend chama a IA (Gemini 1.5 Flash) com todas as resp
 
 A IA Coach não para no onboarding. Ela analisa dados continuamente e gera insights proativos.
 
+### IA de Treino — Acompanhamento Contínuo
+
+Além das análises gerais, o HunterFit passa a ter uma camada formal de **IA de Treino**, especializada em:
+
+- sugerir treinos por perfil
+- atualizar treinos depois de um período de uso
+- analisar progressão por exercício
+- sugerir progressão de carga
+- detectar gargalos de aderência
+- explicar para onde o usuário está indo
+
+#### Fontes específicas da IA de treino
+
+| Fonte | Uso pela IA |
+|-------|-------------|
+| `exercise_sets` | Carga, reps, volume e tempo por exercício |
+| `workout_sessions` | Duração real da sessão e aderência ao plano |
+| `exercise_personal_records` | Tendência de PR e potencial de progressão |
+| `body_measurements` | Relação entre treino e evolução corporal |
+| `daily_nutrition_logs` | Compatibilidade entre treino e recuperação |
+| `ai_checkins` | Dor, fadiga, motivação e disponibilidade |
+
+#### O que a IA mede ao longo do tempo
+
+- tempo médio por exercício
+- tempo médio por série
+- descanso real entre séries
+- velocidade de progressão de carga
+- consistência por grupamento muscular
+- taxa de exercícios pulados, removidos ou substituídos
+- relação entre treino executado e resultado corporal
+
+#### Progressão de carga sugerida
+
+A IA deve sugerir progressões de forma conservadora e contextual.
+
+Exemplos:
+
+- `+2,5kg` no supino se o usuário estabilizou reps no topo da faixa
+- `+1 repetição` antes de subir carga em exercícios acessórios
+- manutenção de carga quando detectar fadiga, sono ruim ou regressão
+- deload local de exercício quando houver estagnação com queda de performance
+
+#### Visualização de progressão
+
+O app deve mostrar um gráfico simples e legível para cada exercício importante:
+
+- carga ao longo do tempo
+- reps ao longo do tempo
+- volume por sessão
+- projeção de progressão
+- meta desejada pelo usuário
+
+Exemplo:
+
+> "Hoje você faz Supino com 80kg para 8 reps. Mantendo o ritmo atual, a projeção é chegar a 90kg para 8 reps em aproximadamente 7 semanas."
+
+### Análise Diária de Treino
+
+Além da análise semanal e mensal, cada treino concluído pode gerar uma leitura curta do dia.
+
+Essa análise deve ser rápida, prática e menos profunda que os relatórios maiores.
+
+#### Exemplo
+
+```
+📍  ANÁLISE RÁPIDA DA DUNGEON
+
+- Volume total: acima da média das últimas 3 sessões
+- Supino: progressão confirmada
+- Desenvolvimento: carga mantida com execução estável
+- Tríceps: queda de reps na última série sugere fadiga
+
+Sugestão do Sistema:
+- manter progressão no supino
+- repetir a mesma carga no tríceps no próximo Push
+```
+
 ### Fontes de Dados Analisados
 
 | Fonte | O que a IA analisa |
@@ -3341,6 +4610,84 @@ Sem precisar de interação — a IA ajusta silenciosamente:
 | Usuário sempre falha o módulo de cardio | Remove cardio da Daily Quest e cria Quest separada opcional |
 | VL crescendo 3 semanas seguidas | Sugere Saga de hipertrofia com metas mais ambiciosas |
 
+### IA de Troca e Curadoria de Exercícios
+
+Quando o usuário estiver montando ou revisando um treino, a IA também atua como curadora de exercícios.
+
+#### Regras
+
+1. Se a IA sugerir um novo treino, ela deve apresentar:
+   - estrutura do dia
+   - músculos focados
+   - por que cada exercício entrou
+2. O usuário pode aprovar ou rejeitar item por item
+3. Se não gostar de um exercício, ele pode:
+   - substituir
+   - remover
+   - pedir outra alternativa
+4. Toda substituição deve seguir a mesma lógica:
+   - preservar o músculo que precisa ser treinado
+   - respeitar restrições físicas
+   - respeitar disponibilidade de equipamento
+5. A IA deve aprender com rejeições repetidas:
+   - se o usuário sempre rejeita determinado exercício, ele deixa de ser sugerido como padrão
+
+#### Exemplo de conversa
+
+```
+[USUÁRIO]: "Quero atualizar meu treino."
+
+[IA COACH]: "Analisei suas últimas 5 semanas.
+Seu treino de costas está funcionando bem, mas o de pernas está longo demais para o seu tempo real.
+Preparei uma nova versão."
+
+[USUÁRIO]: "Não quero cadeira extensora."
+
+[IA COACH]: "Posso trocar por Hack Squat, Leg Press ou Afundo com Halteres.
+Todas mantêm o foco em quadríceps. Qual prefere?"
+```
+
+### Nutri IA — Nutricionista Inteligente Integrada
+
+Além da IA de treino, o HunterFit também passa a ter uma camada formal de **Nutri IA**, pensada para agir como uma nutricionista digital contínua.
+
+#### A Nutri IA considera
+
+- objetivo do usuário
+- treino realizado e volume semanal
+- bioimpedância e evolução corporal
+- peso atual e tendência de peso
+- medicamentos e protocolos informados
+- rotina, horários e aderência
+- ingestão real de macros e água
+- sono, estresse e recuperação
+
+#### O que a Nutri IA faz
+
+- calcula metas iniciais e revisadas
+- ajusta calorias e macros ao longo do tempo
+- sugere distribuição das refeições
+- identifica quando a dieta não combina com o treino atual
+- sugere correções práticas
+- explica o motivo de cada ajuste
+
+#### Exemplo
+
+```
+🥩  AJUSTE DA NUTRI IA
+
+O Sistema detectou:
+- treino 5x/semana com aumento de volume
+- proteína média adequada
+- queda de energia nos treinos de perna
+- perda de gordura estável
+
+Sugestão:
+- manter proteína
+- subir carboidratos em dias de perna
+- reduzir levemente gordura em dias sem treino
+```
+
 ---
 
 ## 42. Planos e Metas Dinâmicos
@@ -3431,6 +4778,10 @@ ALTER TABLE users ADD COLUMN notification_tone VARCHAR(20) DEFAULT 'balanced';
 ALTER TABLE users ADD COLUMN injuries TEXT[];      -- músculos/exercícios a evitar
 ALTER TABLE users ADD COLUMN onboarding_completed BOOLEAN DEFAULT FALSE;
 ALTER TABLE users ADD COLUMN onboarding_completed_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN medications_json JSONB DEFAULT '[]';
+ALTER TABLE users ADD COLUMN routine_context_json JSONB DEFAULT '{}';
+ALTER TABLE users ADD COLUMN preferred_exercises JSONB DEFAULT '[]';
+ALTER TABLE users ADD COLUMN disliked_exercises JSONB DEFAULT '[]';
 
 -- SAGAS (substitui o conceito fixo de 20 dias)
 CREATE TABLE sagas (
@@ -3524,6 +4875,49 @@ CREATE TABLE ai_insights (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- EVOLUÇÃO DE TREINO E AJUSTES DA IA
+CREATE TABLE ai_training_recommendations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES users(id),
+    recommendation_type VARCHAR(30) NOT NULL,
+      -- 'new_plan' | 'plan_refresh' | 'exercise_swap' | 'exercise_progression' | 'condensed_session'
+    source_context VARCHAR(30) NOT NULL,
+      -- 'onboarding' | 'periodic_review' | 'live_workout' | 'manual_request'
+    title VARCHAR(200) NOT NULL,
+    summary TEXT NOT NULL,
+    recommendation_json JSONB NOT NULL,
+    approved BOOLEAN DEFAULT FALSE,
+    rejected BOOLEAN DEFAULT FALSE,
+    applied_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE exercise_swap_history (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES users(id),
+    session_id UUID REFERENCES workout_sessions(id),
+    original_exercise_id UUID,
+    replacement_exercise_name VARCHAR(150) NOT NULL,
+    reason VARCHAR(30),
+      -- 'machine_busy' | 'equipment_missing' | 'pain' | 'preference' | 'ai_adjustment'
+    ai_rationale TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE exercise_progress_snapshots (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES users(id),
+    exercise_name VARCHAR(150) NOT NULL,
+    snapshot_date DATE NOT NULL,
+    avg_weight_kg DECIMAL(6,2),
+    avg_reps DECIMAL(5,2),
+    avg_rest_seconds INT,
+    avg_time_per_set_seconds INT,
+    total_volume_kg DECIMAL(10,2),
+    projected_next_load_kg DECIMAL(6,2),
+    ai_summary TEXT
+);
+
 -- CONFIGURAÇÃO DE DIETA (substituindo metas fixas)
 ALTER TABLE diet_plans ADD COLUMN calculated_by_ai BOOLEAN DEFAULT FALSE;
 ALTER TABLE diet_plans ADD COLUMN tdee_estimate INT;
@@ -3572,6 +4966,14 @@ Endpoints adicionais ao contrato de API:
 | POST | `/api/weekly-goals/adjust` | Ajustar metas semanais antes de aceitar |
 | GET | `/api/ai-coach/difficulty-suggestion` | Sugestão de ajuste de dificuldade das Daily Quests |
 | POST | `/api/ai-coach/apply-adaptation` | Aplicar adaptação sugerida pela IA (metas, plano, quests) |
+| GET | `/api/ai-coach/training-recommendations` | Listar sugestões e revisões de treino geradas pela IA |
+| POST | `/api/ai-coach/training-recommendations/:id/apply` | Aplicar uma sugestão de treino aprovada |
+| POST | `/api/ai-coach/training-recommendations/:id/reject` | Rejeitar sugestão e pedir nova versão |
+| POST | `/api/exercises/:id/replace-live` | Substituir exercício durante a sessão atual com sugestão da IA |
+| GET | `/api/exercises/:id/progression` | Gráfico e análise de progressão do exercício |
+| GET | `/api/workout/daily-analysis/:sessionId` | Análise curta da dungeon concluída |
+| GET | `/api/nutri-ai/recommendations` | Ajustes nutricionais atuais sugeridos pela Nutri IA |
+| POST | `/api/nutri-ai/apply` | Aplicar ajuste nutricional sugerido |
 
 ---
 

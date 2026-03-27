@@ -5,6 +5,7 @@ import { WaterTracker } from '@/components/nutrition/WaterTracker'
 import { MacroRing } from '@/components/nutrition/MacroRing'
 import { XpEventFeed } from '@/components/hunter/XpEventFeed'
 import { ShadowArmy } from '@/components/hunter/ShadowArmy'
+import { TodayWorkoutCard } from '@/components/workout/TodayWorkoutCard'
 import Link from 'next/link'
 
 export default function DashboardPage() {
@@ -25,6 +26,11 @@ export default function DashboardPage() {
       {/* Hunter Profile Card */}
       <Suspense fallback={<div className="hunter-card h-32 animate-pulse" />}>
         <HunterProfile />
+      </Suspense>
+
+      {/* Treino de hoje — atalho direto, reduz 3 toques para 1 */}
+      <Suspense fallback={<div className="hunter-card h-20 animate-pulse bg-muted/20" />}>
+        <TodayWorkoutCard />
       </Suspense>
 
       {/* Daily Quests */}
