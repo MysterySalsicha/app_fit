@@ -13,6 +13,7 @@ import { useHunterStore } from '@/lib/stores/hunterStore'
 import { useParams, useRouter } from 'next/navigation'
 import { enqueueSyncItem } from '@/lib/db/sync'
 import { db } from '@/lib/db/schema'
+import { dispatchSystemNotification } from '@/components/shared/SystemNotification'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -101,6 +102,20 @@ export default function WorkoutFocusPage() {
       finishSession()
       qc.invalidateQueries({ queryKey: ['hunter', 'profile'] })
       qc.invalidateQueries({ queryKey: ['workout', 'history'] })
+      // Notifica skills desbloqueadas durante esse treino
+      if (result.newSkillsUnlocked?.length) {
+        result.newSkillsUnlocked.forEach((skillId: string) => {
+          dispatchSystemNotification({
+            type: 'skill_unlock',
+            title: 'Nova Skill Desbloqueada! 💫',
+            message: skillId
+              .replace(/_/g, ' ')
+              .replace(/\b\w/g, (c: string) => c.toUpperCase()),
+          })
+        })
+        // Invalida a lista de skills para que a página Hunter atualize
+        qc.invalidateQueries({ queryKey: ['hunter', 'skills'] })
+      }
     },
   })
 
