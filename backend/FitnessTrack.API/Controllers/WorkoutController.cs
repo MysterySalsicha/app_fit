@@ -432,24 +432,36 @@ public class WorkoutController : ControllerBase
         if (dto.Sets == null || !dto.Sets.Any())
             return Ok(new { synced = 0, skipped = 0 });
 
+        var incomingSessionIds = dto.Sets.Select(s => s.SessionId).Distinct().ToList();
+
+        // ── Batch query 1: quais sessões pertencem ao usuário (uma única query) ──
+        var validSessionIds = await _db.WorkoutSessions
+            .Where(ws => incomingSessionIds.Contains(ws.Id) && ws.UserId == UserId)
+            .Select(ws => ws.Id)
+            .ToHashSetAsync();
+
+        var authorizedSets = dto.Sets.Where(s => validSessionIds.Contains(s.SessionId)).ToList();
+        if (!authorizedSets.Any())
+            return Ok(new { synced = 0, skipped = dto.Sets.Count });
+
+        // ── Batch query 2: quais combinações (SessionId, ExerciseId, SetNumber) já existem ──
+        var authorizedSessionIds = authorizedSets.Select(s => s.SessionId).Distinct().ToList();
+        var existingKeys = await _db.ExerciseSets
+            .Where(es => authorizedSessionIds.Contains(es.SessionId))
+            .Select(es => new { es.SessionId, es.ExerciseId, es.SetNumber })
+            .ToListAsync();
+
+        var existingSet = existingKeys
+            .Select(k => $"{k.SessionId}:{k.ExerciseId}:{k.SetNumber}")
+            .ToHashSet();
+
         int synced  = 0;
         int skipped = 0;
 
-        foreach (var s in dto.Sets)
+        foreach (var s in authorizedSets)
         {
-            // Verifica se sessão pertence ao usuário
-            var sessionExists = await _db.WorkoutSessions
-                .AnyAsync(ws => ws.Id == s.SessionId && ws.UserId == UserId);
-
-            if (!sessionExists) continue;
-
-            // Idempotência: não duplicar se já existe
-            var exists = await _db.ExerciseSets
-                .AnyAsync(es => es.SessionId == s.SessionId
-                             && es.ExerciseId == s.ExerciseId
-                             && es.SetNumber == s.SetNumber);
-
-            if (exists) { skipped++; continue; }
+            var key = $"{s.SessionId}:{s.ExerciseId}:{s.SetNumber}";
+            if (existingSet.Contains(key)) { skipped++; continue; }
 
             _db.ExerciseSets.Add(new Core.Entities.ExerciseSet
             {
