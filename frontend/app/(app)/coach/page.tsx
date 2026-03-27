@@ -43,8 +43,8 @@ const QUESTIONS: Question[] = [
     systemText: '⚔️  QUAL É SUA EXPERIÊNCIA COM TREINO DE FORÇA?',
     type: 'single',
     options: [
-      { value: 'beginner',     label: 'Nunca treinei consistentemente' },
-      { value: 'beginner',     label: 'Iniciante (3–12 meses)' },
+      { value: 'absolute_beginner', label: 'Nunca treinei consistentemente' },
+      { value: 'beginner',         label: 'Iniciante (3–12 meses)' },
       { value: 'intermediate', label: 'Intermediário (1–3 anos)' },
       { value: 'advanced',     label: 'Avançado (3+ anos)' },
       { value: 'athlete',      label: 'Atleta / Competidor' },

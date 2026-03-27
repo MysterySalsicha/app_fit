@@ -526,8 +526,8 @@ public class CoachController : ControllerBase
 
     private static string NormalizeExperience(string? raw) => raw?.ToLower() switch
     {
-        "a" or "never"        => "beginner",
-        "b" or "beginner"     => "beginner",
+        "a" or "never" or "absolute_beginner" => "beginner",
+        "b" or "beginner"                     => "beginner",
         "c" or "intermediate" => "intermediate",
         "d" or "advanced"     => "advanced",
         "e" or "athlete"      => "athlete",
