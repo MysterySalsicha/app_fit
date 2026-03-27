@@ -236,12 +236,24 @@ export default function NutritionPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-foreground">Nutrição</h1>
         <Link
-          href="/nutrition/import"
+          href="/nutrition/history"
           className="text-xs text-muted-foreground border border-border rounded-lg px-3 py-1.5"
         >
-          📸 IA Import
+          Histórico
         </Link>
       </div>
+
+      {/* CTA de IA Vision — escanear refeição */}
+      <Link href="/nutrition/import">
+        <div className="hunter-card border-primary/30 bg-primary/5 flex items-center gap-3 cursor-pointer active:scale-95 transition-transform hover:border-primary/50">
+          <span className="text-2xl">📸</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-foreground">Escanear refeição com IA</p>
+            <p className="text-xs text-muted-foreground">Tire uma foto e registre os macros automaticamente</p>
+          </div>
+          <span className="text-primary text-xs font-bold shrink-0">Usar →</span>
+        </div>
+      </Link>
 
       {/* Resumo do dia */}
       <div className="hunter-card">

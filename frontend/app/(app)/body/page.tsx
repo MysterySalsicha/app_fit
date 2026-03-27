@@ -237,13 +237,19 @@ export default function BodyPage() {
     <div className="px-4 pt-4 pb-8 space-y-4 max-w-lg mx-auto">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-foreground">Composição Corporal</h1>
-        <Link
-          href="/body/import"
-          className="text-xs text-muted-foreground border border-border rounded-lg px-3 py-1.5"
-        >
-          📸 IA Scan
-        </Link>
       </div>
+
+      {/* CTA de IA Vision — análise corporal */}
+      <Link href="/body/import">
+        <div className="hunter-card border-purple-500/30 bg-purple-500/5 flex items-center gap-3 cursor-pointer active:scale-95 transition-transform hover:border-purple-500/50">
+          <span className="text-2xl">📷</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-foreground">Análise corporal com IA</p>
+            <p className="text-xs text-muted-foreground">Registre medidas via foto ou balança inteligente</p>
+          </div>
+          <span className="text-purple-400 text-xs font-bold shrink-0">Usar →</span>
+        </div>
+      </Link>
 
       {/* Alertas gerados após nova medição */}
       {alerts.map((a, i) => (
