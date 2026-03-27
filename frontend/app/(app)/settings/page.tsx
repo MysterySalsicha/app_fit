@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '@/lib/stores/authStore'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { api } from '@/lib/api'
+import { api } from '@/lib/api/client'
 import { usePushNotifications } from '@/lib/hooks/usePushNotifications'
 
 type ReminderType = 'trt' | 'supplement' | 'water' | 'meal' | 'workout' | 'cardio'
@@ -36,7 +36,7 @@ export default function SettingsPage() {
   const qc      = useQueryClient()
 
   const [reminders, setReminders] = useState<ReminderConfig[]>(REMINDER_DEFAULTS)
-  const [saved, setSaved] = useState(false)
+  const [saved, setSaved]   = useState(false)
   const [stravaMsg, setStravaMsg] = useState<string | null>(null)
 
   const { status: pushStatus, subscribe } = usePushNotifications()
@@ -49,16 +49,36 @@ export default function SettingsPage() {
     }
   }, [params, qc])
 
+  // ── Saved reminders from backend ─────────────────────────────────────────
+  const { data: savedReminders } = useQuery<{ notificationPreferences: string | null }>({
+    queryKey: ['reminders'],
+    queryFn: () => api.get('api/reminders'),
+    staleTime: 60_000,
+  })
+
+  useEffect(() => {
+    if (!savedReminders?.notificationPreferences) return
+    try {
+      const parsed = JSON.parse(savedReminders.notificationPreferences) as Partial<ReminderConfig>[]
+      if (!Array.isArray(parsed)) return
+      // Merge saved values into REMINDER_DEFAULTS; entries not in saved keep their defaults
+      setReminders(prev => prev.map(def => {
+        const saved = parsed.find(s => s.type === def.type)
+        return saved ? { ...def, ...saved } : def
+      }))
+    } catch { /* ignore malformed data */ }
+  }, [savedReminders])
+
   // ── Strava status ────────────────────────────────────────────────────────
   const { data: stravaStatus } = useQuery({
     queryKey: ['strava', 'status'],
-    queryFn: () => api.get('api/strava/status').then(r => r.data),
+    queryFn: () => api.get('api/strava/status'),
   })
 
   // ── Nutrition targets ────────────────────────────────────────────────────
   const { data: targets } = useQuery({
     queryKey: ['nutrition', 'targets'],
-    queryFn: () => api.get('api/nutrition/targets').then(r => r.data),
+    queryFn: () => api.get('api/nutrition/targets'),
   })
 
   const [kcalTarget,    setKcalTarget]    = useState(2450)
@@ -70,19 +90,19 @@ export default function SettingsPage() {
   useEffect(() => {
     if (!targets) return
     setKcalTarget(targets.kcal ?? 2450)
-    setProteinTarget(targets.protein ?? 180)
-    setCarbsTarget(targets.carbs ?? 220)
-    setFatTarget(targets.fat ?? 70)
-    setWaterTarget(targets.water ?? 3500)
+    setProteinTarget(targets.proteinG ?? 180)
+    setCarbsTarget(targets.carbsG ?? 220)
+    setFatTarget(targets.fatG ?? 70)
+    setWaterTarget(targets.waterMl ?? 3500)
   }, [targets])
 
   const saveTargetsMutation = useMutation({
     mutationFn: () => api.put('api/nutrition/targets', {
-      dailyKcalTarget:    kcalTarget,
-      dailyProteinGTarget: proteinTarget,
-      dailyCarbsGTarget:  carbsTarget,
-      dailyFatGTarget:    fatTarget,
-      dailyWaterMlTarget: waterTarget,
+      kcal:      kcalTarget,
+      proteinG:  proteinTarget,
+      carbsG:    carbsTarget,
+      fatG:      fatTarget,
+      waterMl:   waterTarget,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['nutrition', 'targets'] })
@@ -98,8 +118,11 @@ export default function SettingsPage() {
 
   // ── Save reminders ────────────────────────────────────────────────────────
   const handleSaveReminders = async () => {
-    const prefs = JSON.stringify(reminders.filter(r => r.enabled))
+    // Persiste todos os lembretes (enabled e disabled) para que o estado seja
+    // restaurado corretamente ao reabrir as configurações
+    const prefs = JSON.stringify(reminders)
     await api.put('api/reminders', { preferences: prefs })
+    qc.invalidateQueries({ queryKey: ['reminders'] })
     setSaved(true)
     setTimeout(() => setSaved(false), 2500)
   }
@@ -113,6 +136,10 @@ export default function SettingsPage() {
       const days = r.days.includes(day) ? r.days.filter(d => d !== day) : [...r.days, day].sort()
       return { ...r, days }
     }))
+
+  // Atualiza horário de um lembrete (input controlado)
+  const updateReminderTime = (idx: number, time: string) =>
+    setReminders(prev => prev.map((r, i) => i === idx ? { ...r, time } : r))
 
   const handleLogout = () => { logout(); router.push('/login') }
 
@@ -231,7 +258,8 @@ export default function SettingsPage() {
                   <span className="text-xs text-muted-foreground w-12">Horário</span>
                   <input
                     type="time"
-                    defaultValue={reminder.time}
+                    value={reminder.time}
+                    onChange={(e) => updateReminderTime(idx, e.target.value)}
                     className="bg-input border border-border rounded-lg px-2 py-1 text-xs text-foreground"
                   />
                 </div>
@@ -274,7 +302,7 @@ export default function SettingsPage() {
         {stravaStatus?.connected ? (
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground">
-              Atleta #{stravaStatus.athleteId} · Expira: {stravaStatus.expiresAt ? new Date(stravaStatus.expiresAt).toLocaleDateString() : '—'}
+              Atleta #{stravaStatus.athleteId} · Expira: {stravaStatus.tokenExpires ? new Date(stravaStatus.tokenExpires).toLocaleDateString() : '—'}
             </p>
             <button
               onClick={() => disconnectStravaMutation.mutate()}

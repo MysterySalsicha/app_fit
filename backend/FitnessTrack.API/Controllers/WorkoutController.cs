@@ -19,19 +19,22 @@ public class WorkoutController : ControllerBase
     private readonly IMuscleRankService _muscleRank;
     private readonly IStreakService _streak;
     private readonly IHunterProgressService _hunterProgress;
+    private readonly ISkillDetectionService _skillDetection;
 
     public WorkoutController(
         AppDbContext db,
         IXpCalculatorService xpCalc,
         IMuscleRankService muscleRank,
         IStreakService streak,
-        IHunterProgressService hunterProgress)
+        IHunterProgressService hunterProgress,
+        ISkillDetectionService skillDetection)
     {
         _db = db;
         _xpCalc = xpCalc;
         _muscleRank = muscleRank;
         _streak = streak;
         _hunterProgress = hunterProgress;
+        _skillDetection = skillDetection;
     }
 
     private Guid UserId =>
@@ -137,35 +140,62 @@ public class WorkoutController : ControllerBase
 
         if (session == null) return NotFound();
 
-        session.FinishedAt = DateTime.UtcNow;
-        session.TotalDurationSeconds = (int)(session.FinishedAt - session.StartedAt)!.Value.TotalSeconds;
-        session.TotalVolumeLoadKg = session.Sets.Sum(s => s.WeightKg * s.RepsDone ?? 0);
-        session.DungeonCleared = true;
+        // Buscar skills ativas de XP do usuário para o cálculo de multiplicador
+        var activeXpSkills = await _db.HunterSkills
+            .Where(s => s.UserId == UserId && s.IsActive && s.EffectType == "xp_multiplier")
+            .ToListAsync();
 
-        // Calcular XP
-        var xpResult = await _xpCalc.CalculateSessionXpAsync(session);
-        session.XpEarned = xpResult.TotalXp;
-        session.XpMultiplier = (decimal)xpResult.Multiplier;
-
-        // Atualizar ranks musculares
-        await _muscleRank.UpdateAfterSessionAsync(session);
-
-        // Atualizar streak de treino
-        await _streak.UpdateWorkoutStreakAsync(UserId, DateOnly.FromDateTime(DateTime.UtcNow));
-
-        // Level up / rank up
-        var levelResult = await _hunterProgress.AddXpAsync(UserId, xpResult.TotalXp);
-
-        await _db.SaveChangesAsync();
-
-        return Ok(new
+        using var transaction = await _db.Database.BeginTransactionAsync();
+        try
         {
-            sessionId = session.Id,
-            durationSeconds = session.TotalDurationSeconds,
-            volumeLoadKg = session.TotalVolumeLoadKg,
-            xpEarned = session.XpEarned,
-            levelResult,
-        });
+            session.FinishedAt = DateTime.UtcNow;
+            // Proteção contra StartedAt nulo (sessão iniciada offline sem registro do início)
+            session.TotalDurationSeconds = session.StartedAt.HasValue
+                ? (int)(session.FinishedAt.Value - session.StartedAt.Value).TotalSeconds
+                : 0;
+            session.TotalVolumeLoadKg = session.Sets.Sum(s => s.WeightKg.HasValue && s.RepsDone.HasValue
+                ? s.WeightKg.Value * s.RepsDone.Value
+                : 0);
+            session.DungeonCleared = true;
+
+            // Calcular XP (inclui multiplicadores de skill)
+            var xpResult = await _xpCalc.CalculateSessionXpAsync(session, activeXpSkills);
+            session.XpEarned = xpResult.TotalXp;
+            session.XpMultiplier = (decimal)xpResult.Multiplier;
+
+            // Atualizar ranks musculares
+            await _muscleRank.UpdateAfterSessionAsync(session);
+
+            // Atualizar streak de treino
+            await _streak.UpdateWorkoutStreakAsync(UserId, DateOnly.FromDateTime(DateTime.UtcNow));
+
+            // Level up / rank up
+            var levelResult = await _hunterProgress.AddXpAsync(UserId, xpResult.TotalXp);
+
+            await _db.SaveChangesAsync();
+            await transaction.CommitAsync();
+
+            // Detect and unlock any newly earned real skills (fire-and-forget pattern: errors don't fail the response)
+            var newSkills = new List<string>();
+            try { newSkills = (await _skillDetection.CheckAndUnlockSkillsAsync(UserId)).ToList(); }
+            catch { /* skill detection is non-critical */ }
+
+            return Ok(new
+            {
+                sessionId = session.Id,
+                durationSeconds = session.TotalDurationSeconds,
+                volumeLoadKg = session.TotalVolumeLoadKg,
+                xpEarned = session.XpEarned,
+                xpBreakdown = xpResult.Breakdown,
+                levelResult,
+                newSkillsUnlocked = newSkills,
+            });
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
     }
 
     /// <summary>GET /api/workout/history — Histórico paginado</summary>
@@ -173,6 +203,7 @@ public class WorkoutController : ControllerBase
     public async Task<IActionResult> GetHistory([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         var sessions = await _db.WorkoutSessions
+            .Include(s => s.Day)
             .Where(s => s.UserId == UserId)
             .OrderByDescending(s => s.SessionDate)
             .Skip((page - 1) * pageSize)
@@ -181,6 +212,7 @@ public class WorkoutController : ControllerBase
             {
                 s.Id,
                 s.SessionDate,
+                DayLabel           = s.Day.DayLabel,
                 s.DungeonType,
                 s.TotalDurationSeconds,
                 s.TotalVolumeLoadKg,
@@ -190,7 +222,9 @@ public class WorkoutController : ControllerBase
             })
             .ToListAsync();
 
-        return Ok(sessions);
+        var total = await _db.WorkoutSessions.CountAsync(s => s.UserId == UserId);
+
+        return Ok(new { sessions, total, page, pageSize });
     }
 
     // ─── GET /api/workout/today ────────────────────────────────────────────
@@ -285,6 +319,77 @@ public class WorkoutController : ControllerBase
             isRestDay = day.IsRestDay,
             cardioRequired    = day.CardioRequired,
             cardioMinMinutes  = day.CardioMinMinutes,
+            exercises,
+        });
+    }
+
+    // ─── GET /api/workout/days/{dayId} — Retorna dados de um dia específico ──
+
+    /// <summary>
+    /// Retorna exercícios e dados da última sessão para um dia específico pelo ID.
+    /// Usado quando o usuário navega para um dia que não é o de hoje.
+    /// </summary>
+    [HttpGet("days/{dayId:guid}")]
+    public async Task<IActionResult> GetDay(Guid dayId)
+    {
+        var userId = UserId;
+
+        var day = await _db.WorkoutDays
+            .Include(d => d.Exercises)
+                .ThenInclude(e => e.Alternatives)
+            .Include(d => d.Plan)
+            .FirstOrDefaultAsync(d => d.Id == dayId && d.Plan.UserId == userId);
+
+        if (day == null) return NotFound(new { error = "Dia de treino não encontrado" });
+
+        var exerciseIds = day.Exercises.Select(e => e.Id).ToList();
+        var lastSessionData = new Dictionary<Guid, object?>();
+
+        foreach (var exId in exerciseIds)
+        {
+            var lastSession = await _db.WorkoutSessions
+                .Where(s => s.UserId == userId && s.DungeonCleared == true)
+                .OrderByDescending(s => s.SessionDate)
+                .FirstOrDefaultAsync(s => s.Sets.Any(set => set.ExerciseId == exId));
+
+            if (lastSession != null)
+            {
+                var sets = await _db.ExerciseSets
+                    .Where(s => s.SessionId == lastSession.Id && s.ExerciseId == exId && s.Completed)
+                    .OrderBy(s => s.SetNumber)
+                    .Select(s => new { s.SetNumber, s.WeightKg, s.RepsDone })
+                    .ToListAsync();
+
+                lastSessionData[exId] = new { date = lastSession.SessionDate, sets };
+            }
+            else
+            {
+                lastSessionData[exId] = null;
+            }
+        }
+
+        var exercises = day.Exercises.OrderBy(e => e.OrderIndex).Select(e => new
+        {
+            e.Id, e.Name, e.Sets, e.Reps, e.RestSeconds, e.GifUrl, e.Notes,
+            e.OrderIndex, e.PrimaryMuscleGroup,
+            alternatives = e.Alternatives.Select(a => new
+            {
+                a.AlternativeName, a.SimilarityScore, a.EquipmentRequired,
+            }),
+            lastSession = lastSessionData.TryGetValue(e.Id, out var ls) ? ls : null,
+        });
+
+        return Ok(new
+        {
+            planId       = day.PlanId,
+            planName     = day.Plan.Name,
+            dayId        = day.Id,
+            dayNumber    = day.DayNumber,
+            dayLabel     = day.DayLabel,
+            muscleGroups = day.MuscleGroups,
+            isRestDay    = day.IsRestDay,
+            cardioRequired   = day.CardioRequired,
+            cardioMinMinutes = day.CardioMinMinutes,
             exercises,
         });
     }

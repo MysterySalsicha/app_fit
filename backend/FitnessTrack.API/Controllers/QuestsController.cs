@@ -44,10 +44,33 @@ public class QuestsController : ControllerBase
             .ThenBy(q => q.QuestType)
             .ToListAsync();
 
-        var daily         = all.Where(q => q.QuestType == "daily").ToList();
-        var main          = all.Where(q => q.QuestType == "main").ToList();
-        var emergency     = all.Where(q => q.QuestType == "emergency").ToList();
-        var penaltyRescue = all.FirstOrDefault(q => q.QuestType == "penalty_rescue" && q.Status == "active");
+        // Mapeia quests serializando ModulesJson como objeto (frontend espera "modules" como objeto, não string)
+        static object MapQuest(HunterQuest q) => new
+        {
+            q.Id,
+            q.QuestType,
+            q.QuestKey,
+            q.Title,
+            q.Description,
+            q.Narrative,
+            q.Status,
+            modules = string.IsNullOrWhiteSpace(q.ModulesJson) || q.ModulesJson == "\"{}\""
+                ? new { }
+                : (object)JsonSerializer.Deserialize<JsonElement>(q.ModulesJson),
+            q.XpReward,
+            q.StatPointsReward,
+            q.CrystalReward,
+            q.StartsAt,
+            q.ExpiresAt,
+            q.CompletedAt,
+        };
+
+        var daily         = all.Where(q => q.QuestType == "daily").Select(MapQuest).ToList();
+        var main          = all.Where(q => q.QuestType == "main").Select(MapQuest).ToList();
+        var emergency     = all.Where(q => q.QuestType == "emergency").Select(MapQuest).ToList();
+        var penaltyRescue = all
+            .FirstOrDefault(q => q.QuestType == "penalty_rescue" && q.Status == "active") is { } pr
+            ? MapQuest(pr) : null;
 
         return Ok(new { daily, main, emergency, penaltyRescue });
     }

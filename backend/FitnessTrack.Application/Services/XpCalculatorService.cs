@@ -4,7 +4,7 @@ namespace FitnessTrack.Application.Services;
 
 public interface IXpCalculatorService
 {
-    Task<XpResult> CalculateSessionXpAsync(WorkoutSession session);
+    Task<XpResult> CalculateSessionXpAsync(WorkoutSession session, IList<HunterSkill>? activeSkills = null);
     int CalcSetXp(string category, decimal weightKg, int reps);
 }
 
@@ -31,7 +31,7 @@ public class XpCalculatorService : IXpCalculatorService
         ["boss"]      = 2.0,
     };
 
-    public Task<XpResult> CalculateSessionXpAsync(WorkoutSession session)
+    public Task<XpResult> CalculateSessionXpAsync(WorkoutSession session, IList<HunterSkill>? activeSkills = null)
     {
         int rawXp = 0;
         bool prBeaten = session.PrBeaten;
@@ -48,12 +48,23 @@ public class XpCalculatorService : IXpCalculatorService
         double dungeonBonus = DungeonBonus.TryGetValue(session.DungeonType, out var b) ? b : 0;
         double multiplier = 1.0 + dungeonBonus;
 
-        // TODO: aplicar skill multiplier e event multiplier da tabela hunter_skills / events
+        // Aplicar skill multipliers: skills passivas com effect_type = "xp_multiplier"
+        double skillBonus = 0.0;
+        if (activeSkills != null)
+        {
+            foreach (var skill in activeSkills.Where(s =>
+                s.EffectType == "xp_multiplier" && s.EffectValue.HasValue && s.IsActive))
+            {
+                skillBonus += (double)skill.EffectValue!.Value;
+            }
+        }
+        multiplier += skillBonus;
 
         int finalXp = (int)(rawXp * multiplier);
         string breakdown = $"Base: {rawXp} XP"
             + (prBeaten ? " (+PR)" : "")
-            + (dungeonBonus > 0 ? $" ×{multiplier:F1} ({session.DungeonType})" : "");
+            + (dungeonBonus > 0 ? $" ×{1.0 + dungeonBonus:F1} ({session.DungeonType})" : "")
+            + (skillBonus > 0 ? $" +{skillBonus * 100:F0}% skill" : "");
 
         return Task.FromResult(new XpResult(finalXp, multiplier, breakdown));
     }

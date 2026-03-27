@@ -179,7 +179,8 @@ export class HunterFitDB extends Dexie {
       muscleRanks:     'id, muscleGroup',
       streaks:         'id, streakType',
       quests:          'id, questType, status',
-      pendingSync:     'id, createdAt, endpoint',
+      // pendingSync: usa UUID como PK (gerado por crypto.randomUUID()) — não precisa de ++
+      pendingSync:     'id, createdAt, endpoint, retries',
     })
   }
 }

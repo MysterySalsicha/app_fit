@@ -32,7 +32,7 @@ public class WorkoutDay
 public class Exercise
 {
     public Guid Id { get; set; }
-    public Guid DayId { get; set; }
+    public Guid? DayId { get; set; }   // nullable: global library exercises have no day
     public string Name { get; set; } = null!;
     public int Sets { get; set; }
     public string Reps { get; set; } = null!;   // "8-12" ou "15"
@@ -43,7 +43,14 @@ public class Exercise
     public string? PrimaryMuscleGroup { get; set; }
     public string? LastSessionData { get; set; }  // JSONB — cache offline
 
-    public WorkoutDay Day { get; set; } = null!;
+    /// <summary>
+    /// Categoria do exercício para cálculo de XP.
+    /// Valores válidos: compound_heavy | compound_medium | bodyweight | isolation
+    /// Padrão "isolation" garante XP mínimo quando não informado.
+    /// </summary>
+    public string ExerciseCategory { get; set; } = "isolation";
+
+    public WorkoutDay? Day { get; set; }
     public ICollection<ExerciseSet> Sets2 { get; set; } = new List<ExerciseSet>();
     public ICollection<ExerciseAlternative> Alternatives { get; set; } = new List<ExerciseAlternative>();
 }

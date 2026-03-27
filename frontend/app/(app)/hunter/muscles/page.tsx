@@ -31,24 +31,26 @@ const RANK_COLORS: Record<string, string> = {
 }
 
 // Grupos musculares com ícones e nomes PT-BR
+// IMPORTANTE: as chaves aqui DEVEM bater exatamente com o campo `muscle_group`
+// no banco de dados (e com os valores usados no MuscleRankMap.tsx)
 const MUSCLE_GROUPS = [
-  { key: 'chest',          namePt: 'Peito',         icon: '🫁' },
-  { key: 'upper_back',     namePt: 'Costas (sup)',   icon: '🔙' },
-  { key: 'lower_back',     namePt: 'Lombar',         icon: '💪' },
-  { key: 'shoulders',      namePt: 'Ombros',         icon: '🦾' },
-  { key: 'biceps',         namePt: 'Bíceps',         icon: '💪' },
-  { key: 'triceps',        namePt: 'Tríceps',        icon: '💪' },
-  { key: 'forearms',       namePt: 'Antebraços',     icon: '🖐️' },
-  { key: 'core',           namePt: 'Core/Abdômen',   icon: '🔥' },
-  { key: 'quadriceps',     namePt: 'Quadríceps',     icon: '🦵' },
-  { key: 'hamstrings',     namePt: 'Posteriores',    icon: '🦵' },
-  { key: 'glutes',         namePt: 'Glúteos',        icon: '🍑' },
-  { key: 'calves',         namePt: 'Panturrilha',    icon: '🦵' },
-  { key: 'hip_flexors',    namePt: 'Flexores do Q.', icon: '🦴' },
-  { key: 'neck',           namePt: 'Pescoço',        icon: '🎯' },
-  { key: 'inner_chest',    namePt: 'Peito Med.',     icon: '🫀' },
-  { key: 'serratus',       namePt: 'Serrátil',       icon: '🗡️' },
-  { key: 'rotator_cuff',   namePt: 'Manguito',       icon: '🔄' },
+  { key: 'chest',       namePt: 'Peito',             icon: '🫁' },
+  { key: 'back_lat',    namePt: 'Costas (Lat)',       icon: '🔙' },
+  { key: 'back_mid',    namePt: 'Costas (Mid/Lombar)',icon: '💪' },
+  { key: 'shoulders',   namePt: 'Ombros',             icon: '🦾' },
+  { key: 'biceps',      namePt: 'Bíceps',             icon: '💪' },
+  { key: 'triceps',     namePt: 'Tríceps',            icon: '💪' },
+  { key: 'forearms',    namePt: 'Antebraços',         icon: '🖐️' },
+  { key: 'abs',         namePt: 'Abdômen / Core',     icon: '🔥' },
+  { key: 'obliques',    namePt: 'Oblíquos',           icon: '🔶' },
+  { key: 'quads',       namePt: 'Quadríceps',         icon: '🦵' },
+  { key: 'hamstrings',  namePt: 'Isquiotibiais',      icon: '🦵' },
+  { key: 'glutes',      namePt: 'Glúteos',            icon: '🍑' },
+  { key: 'calves',      namePt: 'Panturrilha',        icon: '🦵' },
+  { key: 'traps',       namePt: 'Trapézio',           icon: '🏋️' },
+  { key: 'hip_flexors', namePt: 'Flexores do Quadril',icon: '🦴' },
+  { key: 'neck',        namePt: 'Pescoço',            icon: '🎯' },
+  { key: 'cardio',      namePt: 'Cardio (AGI)',       icon: '❤️' },
 ] as const
 
 export default function MuscleRankPage() {

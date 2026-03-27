@@ -295,11 +295,11 @@ public class CoachController : ControllerBase
 
         var sessions = await _db.WorkoutSessions
             .Where(s => s.UserId == userId && s.StartedAt >= weekAgo && s.FinishedAt != null)
-            .Select(s => new { s.TotalVolumeLoadKg, s.XpEarned, s.DurationSeconds })
+            .Select(s => new { s.TotalVolumeLoadKg, s.XpEarned, s.TotalDurationSeconds })
             .ToListAsync();
 
         var totalVolume  = sessions.Sum(s => (double)(s.TotalVolumeLoadKg ?? 0));
-        var totalXp      = sessions.Sum(s => s.XpEarned ?? 0);
+        var totalXp      = sessions.Sum(s => s.XpEarned);
         var totalSessions = sessions.Count;
 
         var insights = new List<string>();

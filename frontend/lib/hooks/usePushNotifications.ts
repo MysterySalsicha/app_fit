@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { api } from '@/lib/api/client'
+import { api, apiRaw } from '@/lib/api/client'
 
 type PushStatus = 'unsupported' | 'denied' | 'default' | 'subscribed' | 'loading'
 
@@ -75,7 +75,8 @@ export function usePushNotifications() {
       const reg = await navigator.serviceWorker.ready
       const sub = await reg.pushManager.getSubscription()
       if (sub) {
-        await api.delete('api/notification/subscribe')
+        // Backend espera { endpoint } no body do DELETE — usar apiRaw.deleteWithBody
+        await apiRaw.deleteWithBody('api/notification/subscribe', { endpoint: sub.endpoint })
         await sub.unsubscribe()
       }
       setStatus('default')

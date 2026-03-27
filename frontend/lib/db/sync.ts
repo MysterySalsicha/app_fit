@@ -158,3 +158,22 @@ export function isOnline(): boolean {
   if (typeof navigator === 'undefined') return true
   return navigator.onLine
 }
+
+/**
+ * Drena a fila ao iniciar o app, caso haja itens pendentes de sessões anteriores.
+ * Deve ser chamado uma única vez na inicialização do app (providers.tsx ou layout).
+ */
+export async function drainOnStartup(): Promise<void> {
+  if (typeof window === 'undefined') return
+  if (!navigator.onLine) return
+
+  const count = await getPendingCount()
+  if (count === 0) return
+
+  console.info(`[sync] startup: ${count} pending items found — draining...`)
+  const { synced, failed } = await drainQueue()
+  if (synced > 0) {
+    console.info(`[sync] startup drain: ✓ ${synced} synced, ${failed} failed`)
+    window.dispatchEvent(new CustomEvent('hunterfit:synced', { detail: { synced, failed } }))
+  }
+}

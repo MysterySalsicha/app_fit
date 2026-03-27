@@ -19,12 +19,29 @@ function getToken(): string | null {
 
 export function setToken(token: string) {
   localStorage.setItem('hf_token', token)
+  // Setar cookie auxiliar para o middleware Next.js (não acessa localStorage)
+  if (typeof document !== 'undefined') {
+    document.cookie = `hf_auth=1; path=/; max-age=${60 * 60 * 24 * 30}; SameSite=Lax`
+  }
 }
 
 export function clearToken() {
   localStorage.removeItem('hf_token')
   localStorage.removeItem('hf_user')
+  // Remover cookie auxiliar do middleware
+  if (typeof document !== 'undefined') {
+    document.cookie = 'hf_auth=; path=/; max-age=0; SameSite=Lax'
+  }
 }
+
+// Permite enviar body em DELETE (ex: unsubscribe de push)
+export const apiRaw = {
+  deleteWithBody: <T>(path: string, body: unknown) =>
+    request<T>('DELETE', path, body),
+}
+
+// Timeout padrão de 30 segundos — evita que requests pendurem indefinidamente
+const REQUEST_TIMEOUT_MS = 30_000
 
 async function request<T>(
   method: string,
@@ -45,15 +62,29 @@ async function request<T>(
     if (token) headers['Authorization'] = `Bearer ${token}`
   }
 
-  const res = await fetch(`${BASE_URL}/${path.replace(/^\//, '')}`, {
-    method,
-    headers,
-    body: body
-      ? opts.formData
-        ? (body as FormData)
-        : JSON.stringify(body)
-      : undefined,
-  })
+  const controller = new AbortController()
+  const timeoutId  = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+
+  let res: Response
+  try {
+    res = await fetch(`${BASE_URL}/${path.replace(/^\//, '')}`, {
+      method,
+      headers,
+      body: body
+        ? opts.formData
+          ? (body as FormData)
+          : JSON.stringify(body)
+        : undefined,
+      signal: controller.signal,
+    })
+  } catch (err) {
+    if ((err as Error).name === 'AbortError') {
+      throw new ApiError(0, null, `Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`)
+    }
+    throw err
+  } finally {
+    clearTimeout(timeoutId)
+  }
 
   const data = await res.json().catch(() => null)
 

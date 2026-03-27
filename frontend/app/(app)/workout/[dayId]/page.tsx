@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api/client'
 import { DungeonEntryScreen } from '@/components/workout/DungeonEntryScreen'
@@ -12,7 +12,7 @@ import { useWorkoutStore } from '@/lib/stores/workoutStore'
 import { useHunterStore } from '@/lib/stores/hunterStore'
 import { useParams, useRouter } from 'next/navigation'
 import { enqueueSyncItem } from '@/lib/db/sync'
-import { useQueryClient as useQC } from '@tanstack/react-query'
+import { db } from '@/lib/db/schema'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -67,10 +67,14 @@ export default function WorkoutFocusPage() {
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [finishResult, setFinishResult] = useState<any>(null)
 
-  // ── Busca os exercícios do dia via today (fallback para dayId query)
+  // ── Busca os exercícios do dia específico pelo dayId da URL
+  // Se dayId for "today" usa o endpoint de hoje, caso contrário usa o endpoint por id
   const { data: dayData, isLoading } = useQuery<DayData>({
-    queryKey: ['workout', 'today'],
-    queryFn: () => api.get<DayData>('api/workout/today'),
+    queryKey: ['workout', 'day', dayId],
+    queryFn: () =>
+      dayId === 'today'
+        ? api.get<DayData>('api/workout/today')
+        : api.get<DayData>(`api/workout/days/${dayId}`),
     enabled: !isActive && !isComplete,
     staleTime: 5 * 60_000,
   })
@@ -109,13 +113,32 @@ export default function WorkoutFocusPage() {
   ) => {
     if (!sessionId) return
 
-    // 1) Enfileira no Dexie (offline-first)
+    const volumeLoad = weight * reps
+
+    // 1) Persiste set no Dexie (IndexedDB) — sobrevive ao fechar o app
+    const setId = crypto.randomUUID()
+    await db.exerciseSets.put({
+      id: setId,
+      sessionId,
+      exerciseId,
+      setNumber,
+      weightKg: weight,
+      repsDone: reps,
+      volumeLoadKg: volumeLoad,
+      completed: true,
+      completedAt: new Date().toISOString(),
+    })
+
+    // 2) Enfileira na fila de sync para enviar ao backend quando online
     await enqueueSyncItem(
       `api/workout/sessions/${sessionId}/sets`,
       'POST',
       { exerciseId, setNumber, weightKg: weight, repsDone: reps },
-      'log_set'
+      'create'
     )
+
+    // 3) Atualiza store local para feedback visual imediato
+    useWorkoutStore.getState().logSet(exerciseId, setNumber, weight, reps)
   }, [sessionId])
 
   // ─── DungeonEntry ───────────────────────────────────────────────────────────

@@ -1,5 +1,8 @@
 'use client'
 
+import { useQuery } from '@tanstack/react-query'
+import { api } from '@/lib/api/client'
+
 // 17 grupos musculares conforme spec seção 15
 const MUSCLE_GROUPS = [
   { key: 'chest', name: 'Peito', icon: '💪' },
@@ -44,14 +47,17 @@ interface MuscleRankMapProps {
 }
 
 export function MuscleRankMap({ preview = false }: MuscleRankMapProps) {
-  // TODO: fetch real ranks from API/Dexie
-  const mockRanks: Record<string, string> = {
-    chest: 'Intermediate',
-    back_lat: 'Advanced',
-    shoulders: 'Novice',
-    biceps: 'Intermediate',
-    quads: 'Beginner',
-    glutes: 'Novice',
+  const { data } = useQuery<{ muscles: { muscleGroup: string; muscleRank: string }[] }>({
+    queryKey: ['hunter', 'muscles'],
+    queryFn: () => api.get('api/hunter/muscle-ranks'),
+    staleTime: 5 * 60 * 1000, // 5 min
+  })
+
+  // Build lookup map: muscleGroup → rankValue
+  // Backend retorna "muscleRank" (não "muscleRankValue")
+  const rankMap: Record<string, string> = {}
+  for (const m of data?.muscles ?? []) {
+    rankMap[m.muscleGroup] = m.muscleRank
   }
 
   const displayGroups = preview ? MUSCLE_GROUPS.slice(0, 6) : MUSCLE_GROUPS
@@ -65,7 +71,7 @@ export function MuscleRankMap({ preview = false }: MuscleRankMapProps) {
 
       <div className="space-y-2">
         {displayGroups.map((muscle) => {
-          const rank = mockRanks[muscle.key] ?? 'Untrained'
+          const rank = rankMap[muscle.key] ?? 'Untrained'
           const rankClass = getRankBadgeClass(rank)
 
           return (

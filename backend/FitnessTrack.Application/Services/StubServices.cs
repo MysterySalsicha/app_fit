@@ -2,16 +2,12 @@
 
 namespace FitnessTrack.Application.Services;
 
-// IBodyAlertService → BodyAlertService.cs
-// IAiVisionService  → AiVisionService.cs
-// IStravaService    → StravaService.cs
+// IBodyAlertService        → BodyAlertService.cs
+// IAiVisionService         → AiVisionService.cs
+// IStravaService           → StravaService.cs
 // IPushNotificationService → PushNotificationService.cs
+// IExportService           → ExportService.cs
+// ISkillDetectionService   → SkillDetectionService.cs
 
 public interface IDietParserService { }
 public class DietParserService : IDietParserService { }
-
-public interface IExportService { }
-public class ExportService : IExportService { }
-
-public interface ISkillDetectionService { }
-public class SkillDetectionService : ISkillDetectionService { }

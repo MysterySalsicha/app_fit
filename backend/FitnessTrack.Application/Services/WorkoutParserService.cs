@@ -19,9 +19,13 @@ public class WorkoutParserService : IWorkoutParserService
         @"(?:dia\s*)?(\d)\s*[-–—:]\s*(.+)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    // Regex para linha de exercício: "Nome · 4x8-12 · 90s"
+    // Regex para linha de exercício — suporta separadores: · (middle dot), | (pipe) ou - (hífen)
+    // Formatos suportados:
+    //   "Nome · 4x8-12 · 90s"   (formato legado com middle dot)
+    //   "Nome | 4x8-12 | 90s"   (formato atual do template frontend)
+    //   "Nome - 4x8-12 - 90s"   (formato alternativo com hífen)
     private static readonly Regex ExerciseLineRegex = new(
-        @"^(?<name>[^·\-\d][^·]+?)\s*[·\-]\s*(?<sets>\d+)\s*[xX]\s*(?<reps>[\d\-]+)\s*(?:[·\-]\s*(?<rest>\d+)\s*s?)?",
+        @"^(?<name>[^·|\-\d][^·|]+?)\s*[·|\-]\s*(?<sets>\d+)\s*[xX]\s*(?<reps>[\d\-]+)\s*(?:[·|\-]\s*(?<rest>\d+)\s*s?)?",
         RegexOptions.Compiled);
 
     private static readonly Dictionary<string, string> MuscleKeywords = new(StringComparer.OrdinalIgnoreCase)
@@ -63,6 +67,8 @@ public class WorkoutParserService : IWorkoutParserService
             if (dayMatch.Success)
             {
                 exerciseOrder = 0;
+                bool isRestDay = line.Contains("descanso", StringComparison.OrdinalIgnoreCase)
+                              || line.Contains("rest", StringComparison.OrdinalIgnoreCase);
                 currentDay = new WorkoutDay
                 {
                     Id = Guid.NewGuid(),
@@ -71,10 +77,10 @@ public class WorkoutParserService : IWorkoutParserService
                     DayLabel = dayMatch.Groups[2].Value.Trim(),
                     MuscleGroups = dayMatch.Groups[2].Value.Trim(),
                     PrimaryMuscleGroup = DetectPrimaryMuscle(dayMatch.Groups[2].Value),
-                    IsRestDay = line.Contains("descanso", StringComparison.OrdinalIgnoreCase)
-                              || line.Contains("rest", StringComparison.OrdinalIgnoreCase),
-                    CardioRequired = true,
-                    CardioMinMinutes = 45,
+                    IsRestDay = isRestDay,
+                    // Dias de descanso não requerem cardio por padrão
+                    CardioRequired = !isRestDay,
+                    CardioMinMinutes = isRestDay ? 0 : 45,
                 };
                 plan.Days.Add(currentDay);
                 continue;
@@ -118,8 +124,8 @@ public class WorkoutParserService : IWorkoutParserService
                 DayLabel = "Treino",
                 MuscleGroups = "Geral",
                 IsRestDay = false,
-                CardioRequired = true,
-                CardioMinMinutes = 45,
+                CardioRequired = false,
+                CardioMinMinutes = 0,
             });
         }
 

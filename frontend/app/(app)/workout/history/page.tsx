@@ -2,28 +2,28 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { useQuery } from '@tanstack/react-query'
+import { api } from '@/lib/api/client'
 
-// Tipos
+// Tipos alinhados ao backend GET /api/workout/history
 interface SessionRecord {
   id: string
   sessionDate: string
   dayLabel: string
   dungeonType: 'normal' | 'crisis' | 'red_gate' | 'hidden' | 'boss'
-  totalDurationSeconds: number
-  totalVolumeLoadKg: number
+  totalDurationSeconds: number | null
+  totalVolumeLoadKg: number | null
   xpEarned: number
   dungeonCleared: boolean
   prBeaten: boolean
 }
 
-// TODO: substituir por useQuery -> GET /api/workout/history
-const MOCK_HISTORY: SessionRecord[] = [
-  { id: '1', sessionDate: '2026-03-24', dayLabel: 'Push A — Peito, Ombro, Tríceps', dungeonType: 'normal', totalDurationSeconds: 4320, totalVolumeLoadKg: 8750, xpEarned: 680, dungeonCleared: true, prBeaten: true },
-  { id: '2', sessionDate: '2026-03-23', dayLabel: 'Pull A — Costas, Bíceps', dungeonType: 'normal', totalDurationSeconds: 3960, totalVolumeLoadKg: 7200, xpEarned: 540, dungeonCleared: true, prBeaten: false },
-  { id: '3', sessionDate: '2026-03-21', dayLabel: 'Legs A — Quadríceps', dungeonType: 'crisis', totalDurationSeconds: 5040, totalVolumeLoadKg: 12400, xpEarned: 820, dungeonCleared: true, prBeaten: false },
-  { id: '4', sessionDate: '2026-03-20', dayLabel: 'Upper — Força', dungeonType: 'normal', totalDurationSeconds: 4680, totalVolumeLoadKg: 9100, xpEarned: 700, dungeonCleared: false, prBeaten: false },
-  { id: '5', sessionDate: '2026-03-18', dayLabel: 'Lower — Força', dungeonType: 'boss', totalDurationSeconds: 5400, totalVolumeLoadKg: 15200, xpEarned: 1250, dungeonCleared: true, prBeaten: true },
-]
+interface HistoryResponse {
+  sessions: SessionRecord[]
+  total: number
+  page: number
+  pageSize: number
+}
 
 const DUNGEON_LABELS: Record<SessionRecord['dungeonType'], { label: string; color: string; icon: string }> = {
   normal:   { label: 'Normal',    color: 'text-muted-foreground',  icon: '⚔️' },
@@ -33,7 +33,8 @@ const DUNGEON_LABELS: Record<SessionRecord['dungeonType'], { label: string; colo
   boss:     { label: 'Boss Raid', color: 'text-orange-400',        icon: '💀' },
 }
 
-function formatDuration(seconds: number) {
+function formatDuration(seconds: number | null) {
+  if (!seconds) return '—'
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)
   return h > 0 ? `${h}h ${m}min` : `${m}min`
@@ -47,9 +48,13 @@ function formatDate(iso: string) {
 
 // ─── Resumo semanal ────────────────────────────────────────────────────────
 function WeeklySummary({ sessions }: { sessions: SessionRecord[] }) {
-  const totalXp = sessions.reduce((a, s) => a + s.xpEarned, 0)
-  const totalVol = sessions.reduce((a, s) => a + s.totalVolumeLoadKg, 0)
-  const cleared = sessions.filter((s) => s.dungeonCleared).length
+  const now = new Date()
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+  const recent = sessions.filter((s) => new Date(s.sessionDate) >= weekAgo)
+
+  const totalXp  = recent.reduce((a, s) => a + s.xpEarned, 0)
+  const totalVol = recent.reduce((a, s) => a + (s.totalVolumeLoadKg ?? 0), 0)
+  const cleared  = recent.filter((s) => s.dungeonCleared).length
 
   return (
     <div className="hunter-card">
@@ -78,8 +83,20 @@ function WeeklySummary({ sessions }: { sessions: SessionRecord[] }) {
 
 export default function WorkoutHistoryPage() {
   const [filter, setFilter] = useState<'all' | 'pr' | 'boss'>('all')
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 20
 
-  const filtered = MOCK_HISTORY.filter((s) => {
+  const { data, isLoading, isError } = useQuery<HistoryResponse>({
+    queryKey: ['workout', 'history', page],
+    queryFn: () => api.get(`api/workout/history?page=${page}&pageSize=${PAGE_SIZE}`),
+    placeholderData: (prev) => prev,
+  })
+
+  const sessions = data?.sessions ?? []
+  const total = data?.total ?? 0
+  const totalPages = Math.ceil(total / PAGE_SIZE)
+
+  const filtered = sessions.filter((s) => {
     if (filter === 'pr') return s.prBeaten
     if (filter === 'boss') return s.dungeonType === 'boss' || s.dungeonType === 'crisis'
     return true
@@ -96,7 +113,7 @@ export default function WorkoutHistoryPage() {
       </div>
 
       {/* Resumo semanal */}
-      <WeeklySummary sessions={MOCK_HISTORY} />
+      {sessions.length > 0 && <WeeklySummary sessions={sessions} />}
 
       {/* Filtros */}
       <div className="flex gap-2">
@@ -119,68 +136,110 @@ export default function WorkoutHistoryPage() {
         ))}
       </div>
 
+      {/* Loading / Error */}
+      {isLoading && (
+        <div className="text-center text-muted-foreground text-sm py-12 animate-pulse">
+          Carregando histórico…
+        </div>
+      )}
+
+      {isError && (
+        <div className="hunter-card border-destructive/30 text-center text-sm text-destructive py-6">
+          Erro ao carregar histórico. Tente novamente.
+        </div>
+      )}
+
       {/* Lista de sessões */}
-      <div className="space-y-3">
-        {filtered.length === 0 && (
-          <p className="text-center text-muted-foreground text-sm py-8">Nenhuma sessão encontrada.</p>
-        )}
+      {!isLoading && (
+        <div className="space-y-3">
+          {filtered.length === 0 && (
+            <p className="text-center text-muted-foreground text-sm py-8">Nenhuma sessão encontrada.</p>
+          )}
 
-        {filtered.map((session) => {
-          const dungeon = DUNGEON_LABELS[session.dungeonType]
+          {filtered.map((session) => {
+            const dungeonKey = (session.dungeonType ?? 'normal') as SessionRecord['dungeonType']
+            const dungeon = DUNGEON_LABELS[dungeonKey] ?? DUNGEON_LABELS.normal
 
-          return (
-            <div key={session.id} className="hunter-card space-y-3">
-              {/* Row 1: Data + dungeon type */}
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-xs text-muted-foreground">{formatDate(session.sessionDate)}</p>
-                  <p className="text-sm font-semibold text-foreground mt-0.5">{session.dayLabel}</p>
+            return (
+              <div key={session.id} className="hunter-card space-y-3">
+                {/* Row 1: Data + dungeon type */}
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-xs text-muted-foreground">{formatDate(session.sessionDate)}</p>
+                    <p className="text-sm font-semibold text-foreground mt-0.5">
+                      {session.dayLabel || '—'}
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1">
+                    <span className={`text-xs font-medium ${dungeon.color}`}>
+                      {dungeon.icon} {dungeon.label}
+                    </span>
+                    {session.dungeonCleared ? (
+                      <span className="text-xs text-green-400">✓ Cleared</span>
+                    ) : (
+                      <span className="text-xs text-red-400/70">✗ Incompleta</span>
+                    )}
+                  </div>
                 </div>
-                <div className="flex flex-col items-end gap-1">
-                  <span className={`text-xs font-medium ${dungeon.color}`}>
-                    {dungeon.icon} {dungeon.label}
-                  </span>
-                  {session.dungeonCleared && (
-                    <span className="text-xs text-green-400">✓ Cleared</span>
-                  )}
-                  {!session.dungeonCleared && (
-                    <span className="text-xs text-red-400/70">✗ Incompleta</span>
-                  )}
+
+                {/* Row 2: Stats */}
+                <div className="grid grid-cols-3 gap-2 pt-2 border-t border-border">
+                  <div className="text-center">
+                    <p className="text-sm font-bold font-mono text-foreground">
+                      {formatDuration(session.totalDurationSeconds)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">duração</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm font-bold font-mono text-foreground">
+                      {session.totalVolumeLoadKg != null
+                        ? `${(session.totalVolumeLoadKg / 1000).toFixed(1)}t`
+                        : '—'}
+                    </p>
+                    <p className="text-xs text-muted-foreground">volume</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm font-bold font-mono text-xp">
+                      +{session.xpEarned.toLocaleString('pt-BR')}
+                    </p>
+                    <p className="text-xs text-muted-foreground">XP</p>
+                  </div>
                 </div>
+
+                {/* PR badge */}
+                {session.prBeaten && (
+                  <div className="flex items-center gap-1.5 bg-amber-900/30 border border-amber-700/40 rounded-lg px-2.5 py-1.5">
+                    <span className="text-amber-400 text-xs">🏆 Novo Personal Record nesta sessão</span>
+                  </div>
+                )}
               </div>
+            )
+          })}
+        </div>
+      )}
 
-              {/* Row 2: Stats */}
-              <div className="grid grid-cols-3 gap-2 pt-2 border-t border-border">
-                <div className="text-center">
-                  <p className="text-sm font-bold font-mono text-foreground">
-                    {formatDuration(session.totalDurationSeconds)}
-                  </p>
-                  <p className="text-xs text-muted-foreground">duração</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-sm font-bold font-mono text-foreground">
-                    {(session.totalVolumeLoadKg / 1000).toFixed(1)}t
-                  </p>
-                  <p className="text-xs text-muted-foreground">volume</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-sm font-bold font-mono text-xp">
-                    +{session.xpEarned.toLocaleString('pt-BR')}
-                  </p>
-                  <p className="text-xs text-muted-foreground">XP</p>
-                </div>
-              </div>
-
-              {/* PR badge */}
-              {session.prBeaten && (
-                <div className="flex items-center gap-1.5 bg-amber-900/30 border border-amber-700/40 rounded-lg px-2.5 py-1.5">
-                  <span className="text-amber-400 text-xs">🏆 Novo Personal Record nesta sessão</span>
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
+      {/* Paginação */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between pt-2">
+          <button
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page <= 1}
+            className="text-xs text-muted-foreground border border-border rounded-lg px-3 py-1.5 disabled:opacity-40"
+          >
+            ← Anterior
+          </button>
+          <span className="text-xs text-muted-foreground">
+            {page} / {totalPages}
+          </span>
+          <button
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={page >= totalPages}
+            className="text-xs text-muted-foreground border border-border rounded-lg px-3 py-1.5 disabled:opacity-40"
+          >
+            Próximo →
+          </button>
+        </div>
+      )}
     </div>
   )
 }

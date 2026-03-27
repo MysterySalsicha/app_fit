@@ -41,6 +41,11 @@ public class HunterController : ControllerBase
 
         if (profile == null) return NotFound();
 
+        var user = await _db.Users
+            .Where(u => u.Id == UserId)
+            .Select(u => new { u.OnboardingCompleted, u.Name })
+            .FirstOrDefaultAsync();
+
         var equippedTitle = await _db.HunterTitles
             .Where(t => t.UserId == UserId && t.Equipped)
             .Select(t => t.TitleName)
@@ -76,6 +81,8 @@ public class HunterController : ControllerBase
             immunityTokens        = profile.ImmunityTokens,
             equippedTitle,
             streaks,
+            onboardingCompleted   = user?.OnboardingCompleted ?? false,
+            name                  = user?.Name,
         });
     }
 
@@ -170,9 +177,24 @@ public class HunterController : ControllerBase
     {
         var skills = await _db.HunterSkills
             .Where(s => s.UserId == UserId && s.IsActive)
+            .Select(s => new
+            {
+                s.Id,
+                skillKey         = s.SkillId,   // frontend espera "skillKey"
+                s.SkillName,
+                skillDescription = s.EffectType, // fallback; idealmente adicionar campo description
+                s.SkillRank,
+                s.SkillType,
+                s.UnlockedAt,
+                s.IsActive,
+                s.EffectType,
+                s.EffectValue,
+                s.EffectTarget,
+            })
             .ToListAsync();
 
-        return Ok(skills);
+        // Wrapper necessário: frontend espera { skills: [...] }
+        return Ok(new { skills });
     }
 
     /// <summary>GET /api/hunter/titles — Títulos do Hunter</summary>

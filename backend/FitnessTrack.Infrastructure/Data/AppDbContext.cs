@@ -84,7 +84,11 @@ public class AppDbContext : DbContext
             e.ToTable("exercises");
             e.HasKey(ex => ex.Id);
             e.Property(ex => ex.Id).HasDefaultValueSql("uuid_generate_v4()");
-            e.HasOne(ex => ex.Day).WithMany(d => d.Exercises).HasForeignKey(ex => ex.DayId);
+            // DayId is nullable: global library exercises have no day
+            e.HasOne(ex => ex.Day).WithMany(d => d.Exercises)
+             .HasForeignKey(ex => ex.DayId)
+             .IsRequired(false)
+             .OnDelete(DeleteBehavior.SetNull);
         });
 
         // ─── exercise_alternatives ────────────────────────────────────────

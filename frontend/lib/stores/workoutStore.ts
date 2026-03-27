@@ -135,8 +135,11 @@ export const useWorkoutStore = create<WorkoutState>()(
         )
       },
 
-      // TODO: buscar do Dexie (último treino deste exercício)
-      getLastSessionData: (_exerciseId) => null,
+      getLastSessionData: (_exerciseId) => {
+        // Dados históricos vêm diretamente do backend via ExerciseCard (lastSession prop)
+        // Este método é fallback local — busca de Dexie deve ser feita de forma async
+        return null
+      },
     }),
     {
       name: 'hunterfit-workout-session',
