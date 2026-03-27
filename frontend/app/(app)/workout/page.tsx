@@ -1,9 +1,10 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api/client'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 
 interface WorkoutDay {
   id: string
@@ -44,8 +45,73 @@ function getDungeonIcon(label: string): string {
   return DUNGEON_ICONS.full
 }
 
+// ─── Rest Day Modal ──────────────────────────────────────────────────────────
+function RestDayModal({ onClose }: { onClose: () => void }) {
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 bg-black/70 z-50 flex items-end justify-center px-4 pb-8"
+        onClick={onClose}
+      >
+        <motion.div
+          initial={{ y: 80, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 80, opacity: 0 }}
+          transition={{ type: 'spring', damping: 25 }}
+          className="bg-card border border-border rounded-2xl p-5 w-full max-w-sm space-y-4"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl">🌙</span>
+              <h3 className="font-bold text-foreground">Dia de Descanso</h3>
+            </div>
+            <button onClick={onClose} className="text-muted-foreground text-xl leading-none">×</button>
+          </div>
+
+          <div className="system-notification">
+            <p className="text-xs text-blue-400 mb-1 font-mono uppercase tracking-widest">Sistema</p>
+            <p className="text-sm font-bold text-white">RECUPERAÇÃO É PARTE DO TREINO</p>
+          </div>
+
+          <div className="space-y-2 text-sm text-muted-foreground">
+            <div className="flex items-start gap-2">
+              <span className="text-green-400 mt-0.5">💪</span>
+              <p>Seus músculos crescem <span className="text-foreground font-medium">fora</span> da academia, durante o descanso.</p>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="text-blue-400 mt-0.5">🧠</span>
+              <p>Descanso reduz cortisol e melhora foco e motivação para os próximos treinos.</p>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="text-amber-400 mt-0.5">⚡</span>
+              <p>Pular o descanso aumenta risco de lesão e queda de performance.</p>
+            </div>
+          </div>
+
+          <p className="text-xs text-muted-foreground text-center italic">
+            Atividade leve como caminhada ou alongamento é bem-vinda 🚶
+          </p>
+
+          <button
+            onClick={onClose}
+            className="w-full py-3 bg-primary text-primary-foreground rounded-xl font-bold text-sm"
+          >
+            Entendido — vou descansar ✓
+          </button>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  )
+}
+
 export default function WorkoutPage() {
-  const { data: plans, isLoading, isError } = useQuery<WorkoutPlan[]>({
+  const [showRestModal, setShowRestModal] = useState(false)
+
+  const { data: plans, isLoading, isError, refetch } = useQuery<WorkoutPlan[]>({
     queryKey: ['workout', 'plans'],
     queryFn: () => api.get<WorkoutPlan[]>('api/workout/plans'),
     staleTime: 60_000,
@@ -84,13 +150,20 @@ export default function WorkoutPage() {
 
       {/* Error */}
       {isError && !isLoading && (
-        <div className="hunter-card border-destructive/40 text-center py-6">
+        <div className="hunter-card border-destructive/40 text-center py-6 space-y-3">
+          <p className="text-2xl">⚠️</p>
           <p className="text-sm text-muted-foreground">
             Não foi possível carregar os treinos.
           </p>
-          <p className="text-xs text-muted-foreground mt-1">
+          <p className="text-xs text-muted-foreground">
             Verifique sua conexão e tente novamente.
           </p>
+          <button
+            onClick={() => refetch()}
+            className="px-5 py-2 bg-primary text-primary-foreground rounded-xl text-sm font-bold"
+          >
+            Tentar novamente
+          </button>
         </div>
       )}
 
@@ -105,6 +178,9 @@ export default function WorkoutPage() {
         </div>
       )}
 
+      {/* Rest day modal */}
+      {showRestModal && <RestDayModal onClose={() => setShowRestModal(false)} />}
+
       {/* Workout days */}
       {days.map((day, i) => (
         <motion.div
@@ -113,44 +189,45 @@ export default function WorkoutPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: i * 0.05 }}
         >
-          <Link href={day.isRestDay ? '#' : `/workout/${day.id}`}>
-            <div
-              className={`hunter-card flex items-center gap-3 cursor-pointer transition-all active:scale-95 ${
-                day.isRestDay
-                  ? 'opacity-40 cursor-default'
-                  : 'hover:border-primary/50'
-              }`}
+          {day.isRestDay ? (
+            // Rest day: tappable card that opens an info modal
+            <button
+              className="w-full text-left"
+              onClick={() => setShowRestModal(true)}
             >
-              {/* Icon */}
-              <div className="w-10 h-10 rounded-xl bg-muted/30 flex items-center justify-center text-lg shrink-0">
-                {getDungeonIcon(day.dayLabel)}
+              <div className="hunter-card flex items-center gap-3 cursor-pointer transition-all active:scale-95 hover:border-border/80 opacity-60">
+                <div className="w-10 h-10 rounded-xl bg-muted/30 flex items-center justify-center text-lg shrink-0">
+                  {getDungeonIcon(day.dayLabel)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-foreground truncate">{day.dayLabel}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Dia de descanso · toque para saber mais</p>
+                </div>
+                <span className="text-muted-foreground text-xs shrink-0">ℹ️</span>
               </div>
-
-              {/* Info */}
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-foreground truncate">
-                  {day.dayLabel}
-                </p>
-                <p className="text-xs text-muted-foreground truncate mt-0.5">
-                  {day.isRestDay
-                    ? 'Dia de descanso'
-                    : day.muscleGroups || `Dia ${day.dayNumber}`}
-                </p>
-              </div>
-
-              {/* Right side */}
-              {!day.isRestDay && (
+            </button>
+          ) : (
+            // Active training day: link to session
+            <Link href={`/workout/${day.id}`}>
+              <div className="hunter-card flex items-center gap-3 cursor-pointer transition-all active:scale-95 hover:border-primary/50">
+                <div className="w-10 h-10 rounded-xl bg-muted/30 flex items-center justify-center text-lg shrink-0">
+                  {getDungeonIcon(day.dayLabel)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-foreground truncate">{day.dayLabel}</p>
+                  <p className="text-xs text-muted-foreground truncate mt-0.5">
+                    {day.muscleGroups || `Dia ${day.dayNumber}`}
+                  </p>
+                </div>
                 <div className="flex items-center gap-2 shrink-0">
                   {(day.exercises?.length ?? 0) > 0 && (
-                    <span className="text-xs text-muted-foreground">
-                      {day.exercises!.length} ex
-                    </span>
+                    <span className="text-xs text-muted-foreground">{day.exercises!.length} ex</span>
                   )}
                   <span className="text-primary">▶</span>
                 </div>
-              )}
-            </div>
-          </Link>
+              </div>
+            </Link>
+          )}
         </motion.div>
       ))}
 
