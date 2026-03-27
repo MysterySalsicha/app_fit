@@ -227,20 +227,30 @@ export default function CoachOnboardingPage() {
             <p className="text-xs text-blue-400 mb-1 font-mono uppercase tracking-widest">Sistema</p>
             <p className="text-xl font-bold text-white">ANÁLISE CONCLUÍDA</p>
             <p className="text-sm text-blue-200 mt-2">
-              Sua Classe foi atribuída. Seu plano foi configurado.
+              Sua Classe foi atribuída.
             </p>
             <p className="text-sm text-blue-200 mt-1">
-              O Sistema está pronto para monitorar sua evolução.
+              ✅ Seu plano de treino foi <span className="text-green-400 font-bold">gerado automaticamente</span> com base no seu perfil.
+            </p>
+            <p className="text-xs text-blue-300/70 mt-3">
+              Acesse <span className="text-blue-300 font-bold">Treinos</span> para ver e personalizar.
             </p>
           </div>
 
           <motion.button
             whileTap={{ scale: 0.95 }}
-            onClick={() => router.push('/dashboard')}
+            onClick={() => router.push('/workout')}
             className="w-full py-4 bg-primary text-primary-foreground rounded-xl font-bold text-lg"
           >
-            Acessar o Sistema →
+            ⚔️ Ver meu plano de treino
           </motion.button>
+
+          <button
+            onClick={() => router.push('/dashboard')}
+            className="text-sm text-blue-300/60 underline underline-offset-2"
+          >
+            Ir para o Dashboard →
+          </button>
         </motion.div>
       </div>
     )

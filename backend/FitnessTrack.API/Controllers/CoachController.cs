@@ -1,3 +1,4 @@
+using FitnessTrack.Application.Services;
 using FitnessTrack.Core.Entities;
 using FitnessTrack.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
@@ -14,10 +15,12 @@ namespace FitnessTrack.API.Controllers;
 public class CoachController : ControllerBase
 {
     private readonly AppDbContext _db;
+    private readonly IWorkoutParserService _parser;
 
-    public CoachController(AppDbContext db)
+    public CoachController(AppDbContext db, IWorkoutParserService parser)
     {
-        _db = db;
+        _db    = db;
+        _parser = parser;
     }
 
     private Guid UserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -66,7 +69,8 @@ public class CoachController : ControllerBase
         user.OnboardingCompletedAt = DateTime.UtcNow;
 
         // ── Generate AI analysis (deterministic, no LLM call required) ───────
-        var analysis = BuildAnalysis(user, dto.Answers);
+        var (recommendedPlan, nutritionModule, analysisMessage, hunterClass) = BuildAnalysis(user, dto.Answers);
+        var analysis = new { recommendedPlan, nutritionModule, message = analysisMessage, hunterClass };
 
         // ── Persist onboarding response ───────────────────────────────────────
         var existing = await _db.OnboardingResponses
@@ -102,6 +106,23 @@ public class CoachController : ControllerBase
 
         await _db.SaveChangesAsync();
 
+        // ── Gerar plano de treino automático se usuário ainda não tem nenhum ──
+        bool planGenerated = false;
+        var hasPlan = await _db.WorkoutPlans.AnyAsync(p => p.UserId == userId);
+        if (!hasPlan)
+        {
+            var planTxt = GeneratePlanTxt(
+                user.ExperienceLevel ?? "beginner",
+                user.PreferredDaysPerWeek ?? 3,
+                user.TrainingLocation   ?? "full_gym");
+
+            var plan = _parser.Parse(planTxt, userId);
+            plan.Name = $"Plano {recommendedPlan}";
+            _db.WorkoutPlans.Add(plan);
+            await _db.SaveChangesAsync();
+            planGenerated = true;
+        }
+
         return Ok(new
         {
             profile = new
@@ -113,7 +134,10 @@ public class CoachController : ControllerBase
                 hunterRank       = hp?.HunterRank,
             },
             analysis,
-            message = "Análise concluída. O Sistema reconhece seu potencial.",
+            planGenerated,
+            message = planGenerated
+                ? "Análise concluída. Plano de treino gerado e pronto para usar."
+                : "Análise concluída. O Sistema reconhece seu potencial.",
         });
     }
 
@@ -520,7 +544,7 @@ public class CoachController : ControllerBase
         _ => "full_gym",
     };
 
-    private static object BuildAnalysis(User user, Dictionary<string, string> answers)
+    private static (string RecommendedPlan, bool NutritionModule, string Message, string HunterClass) BuildAnalysis(User user, Dictionary<string, string> answers)
     {
         var planType = (user.ExperienceLevel, user.PreferredDaysPerWeek) switch
         {
@@ -533,21 +557,187 @@ public class CoachController : ControllerBase
             _ => "Full Body 3x",
         };
 
-        var nutritionModule = user.FitnessGoal is "fat_loss" or "recomposition" or "muscle_gain";
-
-        return new
+        bool nutritionModule = user.FitnessGoal is "fat_loss" or "recomposition" or "muscle_gain";
+        string hunterClass = user.ExperienceLevel switch
         {
-            recommendedPlan   = planType,
-            nutritionModule,
-            message           = $"Com base no seu perfil, o Sistema recomenda: {planType}.",
-            hunterClass       = user.ExperienceLevel switch
-            {
-                "beginner"     => "Caçador Iniciante",
-                "intermediate" => "Caçador Veterano",
-                "advanced"     => "Elite Hunter",
-                "athlete"      => "National Level Hunter",
-                _              => "Caçador Iniciante",
-            },
+            "beginner"     => "Caçador Iniciante",
+            "intermediate" => "Caçador Veterano",
+            "advanced"     => "Elite Hunter",
+            "athlete"      => "National Level Hunter",
+            _              => "Caçador Iniciante",
+        };
+
+        return (planType, nutritionModule,
+            $"Com base no seu perfil, o Sistema recomenda: {planType}.",
+            hunterClass);
+    }
+
+    /// <summary>
+    /// Gera um TXT de plano de treino baseado no perfil do usuário para ser
+    /// processado pelo WorkoutParserService. Funciona como plano inicial automático.
+    /// </summary>
+    private static string GeneratePlanTxt(string experience, int days, string location)
+    {
+        // Exercícios adaptados para treino em casa sem equipamento
+        bool bodyweight = location is "home_bodyweight" or "outdoor";
+
+        return (experience, days) switch
+        {
+            // ─── INICIANTE ───────────────────────────────────────────────────
+            ("beginner", <= 3) => bodyweight
+                ? @"DIA 1 - FULL BODY A (Peito/Costas/Pernas)
+Flexão de Braço | 3x8-12 | Descanso: 90s
+Agachamento Livre | 3x12-15 | Descanso: 90s
+Remada com Elástico | 3x12-15 | Descanso: 75s
+Afundo | 3x10-12 | Descanso: 60s
+Prancha | 3x30s | Descanso: 45s
+
+DIA 2 - DESCANSO
+
+DIA 3 - FULL BODY B (Ombros/Costas/Core)
+Flexão Pike | 3x8-12 | Descanso: 90s
+Agachamento Sumô | 3x12-15 | Descanso: 75s
+Remada Invertida | 3x10-12 | Descanso: 75s
+Extensão de Quadril | 3x15 | Descanso: 60s
+Abdominal Crunch | 3x20 | Descanso: 45s
+
+DIA 4 - DESCANSO
+
+DIA 5 - FULL BODY C (Força Total)
+Flexão Diamante | 3x8-12 | Descanso: 90s
+Agachamento com Salto | 3x10 | Descanso: 90s
+Superman | 3x15 | Descanso: 60s
+Prancha Lateral | 3x20s | Descanso: 45s
+
+DIA 6 - DESCANSO
+DIA 7 - DESCANSO"
+                : @"DIA 1 - FULL BODY A (Peito/Costas/Pernas)
+Supino Reto com Halteres | 3x8-12 | Descanso: 90s
+Agachamento Livre | 3x8-12 | Descanso: 90s
+Remada Curvada com Halteres | 3x10-12 | Descanso: 90s
+Desenvolvimento com Halteres | 3x10-12 | Descanso: 60s
+Rosca Direta com Halteres | 3x12-15 | Descanso: 60s
+
+DIA 2 - DESCANSO
+
+DIA 3 - FULL BODY B (Ombros/Costas/Core)
+Supino Inclinado com Halteres | 3x8-12 | Descanso: 90s
+Leg Press 45 | 3x10-12 | Descanso: 90s
+Puxada na Polia Alta | 3x10-12 | Descanso: 75s
+Elevação Lateral | 3x12-15 | Descanso: 60s
+Tríceps na Polia | 3x12-15 | Descanso: 60s
+
+DIA 4 - DESCANSO
+
+DIA 5 - FULL BODY C (Força Total)
+Agachamento com Barra | 3x6-10 | Descanso: 120s
+Levantamento Terra | 3x6-10 | Descanso: 120s
+Supino Reto com Barra | 3x6-10 | Descanso: 120s
+Prancha | 3x30s | Descanso: 45s
+
+DIA 6 - DESCANSO
+DIA 7 - DESCANSO",
+
+            ("beginner", _) => @"DIA 1 - UPPER A (Peito/Ombros)
+Supino Reto com Halteres | 3x8-12 | Descanso: 90s
+Desenvolvimento com Halteres | 3x10-12 | Descanso: 75s
+Elevação Lateral | 3x12-15 | Descanso: 60s
+Rosca Direta | 3x12-15 | Descanso: 60s
+Tríceps na Polia | 3x12-15 | Descanso: 60s
+
+DIA 2 - LOWER A (Quadríceps/Glúteos)
+Agachamento Livre | 3x8-12 | Descanso: 90s
+Leg Press 45 | 3x10-12 | Descanso: 90s
+Extensão de Joelho | 3x12-15 | Descanso: 60s
+Panturrilha em Pé | 3x15-20 | Descanso: 45s
+
+DIA 3 - DESCANSO
+
+DIA 4 - UPPER B (Costas/Bíceps)
+Puxada na Polia Alta | 3x8-12 | Descanso: 90s
+Remada Curvada com Halteres | 3x10-12 | Descanso: 90s
+Pullover com Halter | 3x12 | Descanso: 60s
+Rosca Martelo | 3x12-15 | Descanso: 60s
+
+DIA 5 - LOWER B (Isquiotibiais/Glúteos)
+Levantamento Terra Romeno | 3x8-12 | Descanso: 90s
+Cadeira Flexora | 3x12-15 | Descanso: 60s
+Afundo | 3x10-12 | Descanso: 75s
+Abdômen Crunch | 3x20 | Descanso: 45s
+
+DIA 6 - DESCANSO
+DIA 7 - DESCANSO",
+
+            // ─── INTERMEDIÁRIO ───────────────────────────────────────────────
+            ("intermediate", <= 4) => @"DIA 1 - UPPER A (Peito/Ombros/Tríceps)
+Supino Reto com Barra | 4x6-10 | Descanso: 120s
+Supino Inclinado com Halteres | 3x8-12 | Descanso: 90s
+Desenvolvimento com Barra | 4x8-12 | Descanso: 90s
+Elevação Lateral | 3x12-15 | Descanso: 60s
+Tríceps Polia Alta | 3x12-15 | Descanso: 60s
+
+DIA 2 - LOWER A (Quadríceps/Glúteos/Panturrilha)
+Agachamento com Barra | 4x5-8 | Descanso: 120s
+Leg Press 45 | 4x10-12 | Descanso: 90s
+Extensão de Joelho | 3x12-15 | Descanso: 60s
+Afundo com Halteres | 3x10-12 | Descanso: 75s
+Panturrilha em Pé | 4x15-20 | Descanso: 45s
+
+DIA 3 - DESCANSO
+
+DIA 4 - UPPER B (Costas/Bíceps/Ombro Posterior)
+Barra Fixa Supinada | 4x6-10 | Descanso: 120s
+Remada Curvada com Barra | 4x8-12 | Descanso: 90s
+Puxada na Polia Alta | 3x10-12 | Descanso: 75s
+Rosca Direta com Barra | 3x10-12 | Descanso: 60s
+Elevação com Inclinação | 3x15 | Descanso: 45s
+
+DIA 5 - LOWER B (Isquiotibiais/Glúteos/Core)
+Levantamento Terra | 4x4-6 | Descanso: 180s
+Cadeira Flexora | 3x12-15 | Descanso: 60s
+Levantamento Terra Romeno | 3x10-12 | Descanso: 90s
+Hip Thrust | 3x12-15 | Descanso: 75s
+Prancha | 3x45s | Descanso: 45s
+
+DIA 6 - DESCANSO
+DIA 7 - DESCANSO",
+
+            _ => @"DIA 1 - PUSH (Peito/Ombros/Tríceps)
+Supino Reto com Barra | 4x5-8 | Descanso: 120s
+Supino Inclinado com Halteres | 4x8-12 | Descanso: 90s
+Desenvolvimento com Barra | 4x8-12 | Descanso: 90s
+Elevação Lateral | 3x12-15 | Descanso: 60s
+Tríceps Polia Alta | 3x12-15 | Descanso: 60s
+Tríceps Coice | 3x12-15 | Descanso: 60s
+
+DIA 2 - PULL (Costas/Bíceps/Ombro Posterior)
+Barra Fixa Supinada | 4x6-10 | Descanso: 120s
+Remada Curvada com Barra | 4x8-10 | Descanso: 90s
+Puxada na Polia Alta | 3x10-12 | Descanso: 75s
+Rosca Direta com Barra | 3x10-12 | Descanso: 60s
+Rosca Martelo | 3x12-15 | Descanso: 60s
+
+DIA 3 - LEGS (Quadríceps/Isquiotibiais/Glúteos)
+Agachamento com Barra | 4x5-8 | Descanso: 180s
+Leg Press 45 | 4x10-12 | Descanso: 90s
+Extensão de Joelho | 3x12-15 | Descanso: 60s
+Cadeira Flexora | 3x12-15 | Descanso: 60s
+Panturrilha em Pé | 4x15-20 | Descanso: 45s
+
+DIA 4 - DESCANSO
+
+DIA 5 - PUSH B (Peito/Ombros/Tríceps)
+Supino Reto com Halteres | 4x8-12 | Descanso: 90s
+Crossover Polia | 3x12-15 | Descanso: 60s
+Desenvolvimento Arnold | 4x10-12 | Descanso: 90s
+Tríceps Franzido | 3x12-15 | Descanso: 60s
+
+DIA 6 - PULL B (Costas/Bíceps)
+Remada Unilateral com Halter | 4x8-12 | Descanso: 90s
+Pullover com Halter | 3x12-15 | Descanso: 60s
+Rosca Concentrada | 3x12-15 | Descanso: 60s
+
+DIA 7 - DESCANSO",
         };
     }
 
