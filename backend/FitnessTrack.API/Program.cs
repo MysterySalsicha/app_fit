@@ -143,6 +143,9 @@ app.UseSerilogRequestLogging();
 app.UseHttpsRedirection();
 app.UseCors("HunterFitPolicy");
 
+// ─── Security Headers ─────────────────────────────────────────────────────
+app.UseMiddleware<SecurityHeadersMiddleware>();
+
 // ─── Rate Limiting (custom, .NET 6 compatible) ────────────────────────────
 app.UseMiddleware<RateLimitMiddleware>();
 
