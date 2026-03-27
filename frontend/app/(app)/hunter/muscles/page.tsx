@@ -73,18 +73,34 @@ export default function MuscleRankPage() {
         </Link>
       </div>
 
+      {/* Como funciona — explicação para o usuário */}
+      <div className="system-notification">
+        <p className="text-xs text-blue-400 mb-1 font-mono uppercase tracking-widest">Sistema</p>
+        <p className="text-sm font-bold text-white mb-2">COMO OS RANKS MUSCULARES FUNCIONAM</p>
+        <div className="space-y-1 text-xs text-blue-200">
+          <p>📈 O rank sobe conforme você treina cada grupo regularmente com <span className="text-white font-medium">volume progressivo</span>.</p>
+          <p>⏱️ O cálculo usa os seus <span className="text-white font-medium">últimos 30 dias</span> de treino — treinos antigos não contam.</p>
+          <p>🏋️ Mais séries, mais peso e mais frequência = mais volume = rank mais alto.</p>
+          <p>💡 Se um músculo está em <span className="text-amber-300 font-medium">Untrained</span>, adicione pelo menos 1 exercício para ele por semana.</p>
+        </div>
+      </div>
+
       {/* Legenda de ranks */}
       <div className="hunter-card">
-        <p className="text-xs text-muted-foreground mb-2">Escala de ranks</p>
-        <div className="flex flex-wrap gap-1">
-          {RANK_ORDER.map((rank) => (
-            <span
-              key={rank}
-              className="text-[10px] px-1.5 py-0.5 rounded-full font-bold"
-              style={{ backgroundColor: `${RANK_COLORS[rank]}20`, color: RANK_COLORS[rank] }}
-            >
-              {rank}
-            </span>
+        <p className="text-xs text-muted-foreground mb-2">Escala de evolução</p>
+        <div className="flex flex-wrap gap-1.5">
+          {RANK_ORDER.map((rank, i) => (
+            <div key={rank} className="flex items-center gap-1">
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded-full font-bold"
+                style={{ backgroundColor: `${RANK_COLORS[rank]}20`, color: RANK_COLORS[rank] }}
+              >
+                {rank}
+              </span>
+              {i < RANK_ORDER.length - 1 && (
+                <span className="text-muted-foreground text-[10px]">→</span>
+              )}
+            </div>
           ))}
         </div>
       </div>
@@ -119,18 +135,18 @@ export default function MuscleRankPage() {
                       )}
                     </div>
                   </div>
-                  <div className="text-right">
+                  <div className="text-right shrink-0">
                     <span
                       className="text-xs font-bold px-2 py-0.5 rounded-full"
                       style={{ backgroundColor: `${color}20`, color }}
                     >
                       {rank}
                     </span>
-                    {vol > 0 && (
-                      <p className="text-[10px] text-muted-foreground mt-0.5">
-                        {(vol / 1000).toFixed(1)}t / 30d
-                      </p>
-                    )}
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      {muscle?.sessions30d
+                        ? `${muscle.sessions30d} sessão${muscle.sessions30d !== 1 ? 'ões' : ''} · ${(vol / 1000).toFixed(1)}t`
+                        : 'Sem treino recente'}
+                    </p>
                   </div>
                 </div>
 
