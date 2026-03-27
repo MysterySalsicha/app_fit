@@ -62,6 +62,14 @@ async function request<T>(
     if (token) headers['Authorization'] = `Bearer ${token}`
   }
 
+  // Send timezone offset so the server can compute the correct local date/day-of-week.
+  // getTimezoneOffset() returns minutes WEST of UTC (negative for Brazil, etc.)
+  // We invert the sign so positive = ahead of UTC (e.g., BRT = UTC-3 → +180 minutes offset from server POV is wrong)
+  // We send the raw value and let the server subtract: utcNow + offset_minutes → local time
+  if (typeof window !== 'undefined') {
+    headers['X-Timezone-Offset'] = String(-new Date().getTimezoneOffset())
+  }
+
   const controller = new AbortController()
   const timeoutId  = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
 

@@ -253,10 +253,20 @@ public class WorkoutController : ControllerBase
     public async Task<IActionResult> GetToday()
     {
         var userId = UserId;
-        var today  = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        // Ajusta para o fuso horário do usuário usando o header X-Timezone-Offset
+        // (offset em minutos à frente do UTC, ex: BRT = -180 → enviado como +180? → lemos como-é)
+        int tzOffsetMinutes = 0;
+        if (Request.Headers.TryGetValue("X-Timezone-Offset", out var tzHeader)
+            && int.TryParse(tzHeader.FirstOrDefault(), out var parsed))
+        {
+            tzOffsetMinutes = parsed;
+        }
+        var localNow = DateTime.UtcNow.AddMinutes(tzOffsetMinutes);
+        var today    = DateOnly.FromDateTime(localNow);
 
         // Dia da semana (1=Dom, 2=Seg ... 7=Sáb) → mapeia para day_number
-        int dayOfWeek = (int)DateTime.UtcNow.DayOfWeek + 1;
+        int dayOfWeek = (int)localNow.DayOfWeek + 1;
 
         // Pega o último plano ativo do usuário
         var plan = await _db.WorkoutPlans

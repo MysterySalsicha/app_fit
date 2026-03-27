@@ -25,6 +25,21 @@ public class CoachController : ControllerBase
 
     private Guid UserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
+    /// <summary>
+    /// Returns DateTime.UtcNow adjusted by the client's timezone offset (X-Timezone-Offset header).
+    /// Prevents off-by-one day errors for users in UTC- timezones late at night.
+    /// </summary>
+    private DateTime GetLocalNow()
+    {
+        int offset = 0;
+        if (Request.Headers.TryGetValue("X-Timezone-Offset", out var hdr)
+            && int.TryParse(hdr.FirstOrDefault(), out var parsed))
+        {
+            offset = parsed;
+        }
+        return DateTime.UtcNow.AddMinutes(offset);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // ONBOARDING
     // ─────────────────────────────────────────────────────────────────────────
@@ -462,8 +477,9 @@ public class CoachController : ControllerBase
     public async Task<IActionResult> GetWeeklyGoals()
     {
         var userId = UserId;
+        var localNow = GetLocalNow();
         var monday = DateOnly.FromDateTime(
-            DateTime.UtcNow.AddDays(-(int)DateTime.UtcNow.DayOfWeek + (int)DayOfWeek.Monday));
+            localNow.AddDays(-(int)localNow.DayOfWeek + (int)DayOfWeek.Monday));
 
         var wg = await _db.WeeklyGoals
             .FirstOrDefaultAsync(w => w.UserId == userId && w.WeekStart == monday);
@@ -497,8 +513,9 @@ public class CoachController : ControllerBase
     public async Task<IActionResult> AcceptWeeklyGoals()
     {
         var userId = UserId;
+        var localNow = GetLocalNow();
         var monday = DateOnly.FromDateTime(
-            DateTime.UtcNow.AddDays(-(int)DateTime.UtcNow.DayOfWeek + (int)DayOfWeek.Monday));
+            localNow.AddDays(-(int)localNow.DayOfWeek + (int)DayOfWeek.Monday));
 
         var wg = await _db.WeeklyGoals
             .FirstOrDefaultAsync(w => w.UserId == userId && w.WeekStart == monday);
