@@ -9,7 +9,7 @@ import { useAuthStore } from '@/lib/stores/authStore'
 
 // ─── Question definitions ──────────────────────────────────────────────────
 
-type QuestionType = 'single' | 'multi' | 'input' | 'number'
+type QuestionType = 'single' | 'multi' | 'input' | 'number' | 'date'
 
 interface Question {
   id: string
@@ -91,8 +91,7 @@ const QUESTIONS: Question[] = [
     id: 'birthdate',
     label: 'Data de Nascimento',
     systemText: '📅  QUANDO VOCÊ NASCEU? (opcional)',
-    type: 'input',
-    placeholder: 'AAAA-MM-DD',
+    type: 'date',
     optional: true,
   },
   {
@@ -341,6 +340,36 @@ export default function CoachOnboardingPage() {
                 placeholder={current.placeholder}
                 className="w-full bg-input border border-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
                 onKeyDown={(e) => e.key === 'Enter' && handleTextSubmit()}
+              />
+              <div className="flex gap-2">
+                {current.optional && (
+                  <button
+                    onClick={() => handleAnswer('__skipped__')}
+                    className="flex-1 py-3 border border-border rounded-xl text-muted-foreground text-sm"
+                  >
+                    Pular
+                  </button>
+                )}
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handleTextSubmit}
+                  className="flex-1 py-3 bg-primary text-primary-foreground rounded-xl font-bold text-sm"
+                >
+                  Continuar →
+                </motion.button>
+              </div>
+            </div>
+          )}
+
+          {/* Date input — native picker, much more user-friendly than AAAA-MM-DD text */}
+          {current.type === 'date' && (
+            <div className="space-y-3">
+              <input
+                type="date"
+                value={answers[current.id] ?? ''}
+                onChange={(e) => setAnswers({ ...answers, [current.id]: e.target.value })}
+                max={new Date().toISOString().split('T')[0]}
+                className="w-full bg-input border border-border rounded-xl px-4 py-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               />
               <div className="flex gap-2">
                 {current.optional && (
