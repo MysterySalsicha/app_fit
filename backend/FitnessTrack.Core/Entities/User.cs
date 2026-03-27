@@ -31,6 +31,12 @@ public class User
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+    /// <summary>
+    /// Soft delete: quando preenchido, a conta está marcada para remoção.
+    /// O email é anonimizado e os dados são removidos após 30 dias (LGPD).
+    /// </summary>
+    public DateTime? DeletedAt { get; set; }
+
     // Navigation
     public HunterProfile? HunterProfile { get; set; }
     public ICollection<WorkoutPlan> WorkoutPlans { get; set; } = new List<WorkoutPlan>();

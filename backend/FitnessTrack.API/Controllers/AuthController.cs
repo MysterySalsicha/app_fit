@@ -142,6 +142,10 @@ public class AuthController : ControllerBase
     }
 
     // ─── DELETE /api/auth/account ─────────────────────────────────────────
+    /// <summary>
+    /// Soft delete: anonimiza o email e marca o usuário como deletado.
+    /// Os dados são elegíveis para remoção permanente após 30 dias (conformidade LGPD).
+    /// </summary>
     [HttpDelete("account")]
     [Authorize]
     public async Task<IActionResult> DeleteAccount()
@@ -150,7 +154,20 @@ public class AuthController : ControllerBase
         var user = await _db.Users.FindAsync(userId);
         if (user == null) return NotFound();
 
-        _db.Users.Remove(user);
+        // Soft delete: não remove imediatamente — anonimiza e marca para remoção
+        user.DeletedAt = DateTime.UtcNow;
+        user.Email     = $"deleted_{userId}@removed.invalid"; // anonimiza para liberar o email
+        user.Name      = "Conta removida";
+
+        // Remove tokens Strava para revogar acesso externo imediatamente
+        user.StravaAccessToken  = null;
+        user.StravaRefreshToken = null;
+        user.StravaTokenExpiresAt = null;
+
+        // Remove preferências de push para parar notificações imediatamente
+        var pushSubs = _db.PushSubscriptions.Where(p => p.UserId == userId);
+        _db.PushSubscriptions.RemoveRange(pushSubs);
+
         await _db.SaveChangesAsync();
         return NoContent();
     }

@@ -47,6 +47,9 @@ public class AppDbContext : DbContext
             e.HasIndex(u => u.Email).IsUnique();
             e.Property(u => u.HeightCm).HasColumnType("decimal(5,2)");
             e.Property(u => u.TdeeConfidence).HasColumnType("decimal(3,2)");
+
+            // Soft delete: filtro global — consultas normais só retornam usuários não deletados
+            e.HasQueryFilter(u => u.DeletedAt == null);
         });
 
         // ─── hunter_profiles ──────────────────────────────────────────────
