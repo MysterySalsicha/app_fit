@@ -34,10 +34,15 @@ public class ImportController : ControllerBase
     /// Spec: Módulo A — Parser TXT (seção 5)
     /// </summary>
     [HttpPost("workout")]
+    [RequestSizeLimit(512 * 1024)] // 512 KB — plano TXT nunca deve ultrapassar isso
     public async Task<IActionResult> ImportWorkout([FromBody] ImportWorkoutDto dto)
     {
         if (string.IsNullOrWhiteSpace(dto.RawTxt))
             return Ok(new { days = 0, exercises = 0, ignoredLines = 0 });
+
+        // Valida tamanho do texto diretamente (defesa em profundidade)
+        if (dto.RawTxt.Length > 200_000)
+            return BadRequest(new { error = "Plano muito longo. Máximo de 200.000 caracteres." });
 
         var plan = _workoutParser.Parse(dto.RawTxt, UserId);
 
@@ -63,10 +68,14 @@ public class ImportController : ControllerBase
     /// Usado pelo frontend para o pré-visualizar.
     /// </summary>
     [HttpPost("workout/preview")]
+    [RequestSizeLimit(512 * 1024)]
     public IActionResult PreviewWorkout([FromBody] ImportWorkoutDto dto)
     {
         if (string.IsNullOrWhiteSpace(dto.RawTxt))
             return Ok(new { days = new object[0] });
+
+        if (dto.RawTxt.Length > 200_000)
+            return BadRequest(new { error = "Plano muito longo. Máximo de 200.000 caracteres." });
 
         var plan = _workoutParser.Parse(dto.RawTxt, UserId);
 
@@ -91,10 +100,14 @@ public class ImportController : ControllerBase
 
     // ─── POST /api/import/diet ────────────────────────────────────────────
     [HttpPost("diet")]
+    [RequestSizeLimit(256 * 1024)] // 256 KB
     public async Task<IActionResult> ImportDiet([FromBody] ImportDietDto dto)
     {
         if (string.IsNullOrWhiteSpace(dto.RawTxt))
             return BadRequest(new { error = "Texto vazio" });
+
+        if (dto.RawTxt.Length > 100_000)
+            return BadRequest(new { error = "Plano alimentar muito longo. Máximo de 100.000 caracteres." });
 
         // TODO: DietParserService completo (spec seção 5, PD-01 a PD-03)
         return Ok(new { message = "Diet parser em implementação" });
