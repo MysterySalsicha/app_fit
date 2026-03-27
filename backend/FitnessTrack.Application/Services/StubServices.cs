@@ -9,5 +9,4 @@ namespace FitnessTrack.Application.Services;
 // IExportService           → ExportService.cs
 // ISkillDetectionService   → SkillDetectionService.cs
 
-public interface IDietParserService { }
-public class DietParserService : IDietParserService { }
+// IDietParserService → DietParserService.cs

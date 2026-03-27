@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using FitnessTrack.Application.Services;
 using FitnessTrack.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 
 namespace FitnessTrack.API.Controllers;
@@ -98,9 +99,54 @@ public class ImportController : ControllerBase
         return Ok(new { name = plan.Name, days = preview });
     }
 
+    // ─── POST /api/import/diet/preview ───────────────────────────────────
+    /// <summary>
+    /// Parseia e retorna preview das refeições sem persistir.
+    /// </summary>
+    [HttpPost("diet/preview")]
+    [RequestSizeLimit(256 * 1024)]
+    public IActionResult PreviewDiet([FromBody] ImportDietDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.RawTxt))
+            return Ok(new { meals = new object[0] });
+
+        if (dto.RawTxt.Length > 100_000)
+            return BadRequest(new { error = "Plano muito longo. Máximo de 100.000 caracteres." });
+
+        var result = _dietParser.Parse(dto.RawTxt);
+
+        return Ok(new
+        {
+            meals = result.Meals.Select(m => new
+            {
+                number        = m.MealNumber,
+                name          = m.Name,
+                suggestedTime = m.SuggestedTime,
+                kcal          = m.KcalEstimate,
+                proteinG      = m.ProteinG,
+                carbsG        = m.CarbsG,
+                fatG          = m.FatG,
+                foods         = m.Foods,
+            }),
+            totals = new
+            {
+                kcal     = result.TotalKcal,
+                proteinG = result.TotalProteinG,
+                carbsG   = result.TotalCarbsG,
+                fatG     = result.TotalFatG,
+            },
+            macrosSumValid = result.MacrosSumValid,
+            ignoredLines   = result.IgnoredLines,
+        });
+    }
+
     // ─── POST /api/import/diet ────────────────────────────────────────────
+    /// <summary>
+    /// Parseia plano alimentar e persiste como NutritionLogs (source=import).
+    /// Spec: PD-01 a PD-03 (seção 5).
+    /// </summary>
     [HttpPost("diet")]
-    [RequestSizeLimit(256 * 1024)] // 256 KB
+    [RequestSizeLimit(256 * 1024)]
     public async Task<IActionResult> ImportDiet([FromBody] ImportDietDto dto)
     {
         if (string.IsNullOrWhiteSpace(dto.RawTxt))
@@ -109,8 +155,39 @@ public class ImportController : ControllerBase
         if (dto.RawTxt.Length > 100_000)
             return BadRequest(new { error = "Plano alimentar muito longo. Máximo de 100.000 caracteres." });
 
-        // TODO: DietParserService completo (spec seção 5, PD-01 a PD-03)
-        return Ok(new { message = "Diet parser em implementação" });
+        var result = _dietParser.Parse(dto.RawTxt);
+
+        if (result.Meals.Count == 0)
+            return BadRequest(new { error = "Nenhuma refeição reconhecida. Verifique o formato do texto." });
+
+        var logs = _dietParser.ToNutritionLogs(result, UserId);
+        _db.NutritionLogs.AddRange(logs);
+
+        // Atualiza metas diárias no perfil do hunter se o total foi reconhecido
+        if (result.TotalKcal > 0)
+        {
+            var profile = await _db.HunterProfiles
+                .FirstOrDefaultAsync(p => p.UserId == UserId);
+            if (profile is not null)
+            {
+                profile.DailyKcalTarget    = result.TotalKcal;
+                profile.DailyProteinGTarget = result.TotalProteinG;
+                profile.DailyCarbsGTarget   = result.TotalCarbsG;
+                profile.DailyFatGTarget     = result.TotalFatG;
+            }
+        }
+
+        await _db.SaveChangesAsync();
+
+        return Ok(new
+        {
+            meals         = result.Meals.Count,
+            totalKcal     = result.TotalKcal,
+            totalProteinG = result.TotalProteinG,
+            totalCarbsG   = result.TotalCarbsG,
+            totalFatG     = result.TotalFatG,
+            macrosSumValid = result.MacrosSumValid,
+        });
     }
 }
 

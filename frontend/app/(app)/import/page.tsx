@@ -299,8 +299,31 @@ function DayPreview({ day }: { day: ParsedDay }) {
   )
 }
 
+// ─── Tipos do parser de dieta ──────────────────────────────────────────────
+
+interface ParsedMeal {
+  number: number
+  name: string
+  suggestedTime?: string
+  kcal: number
+  proteinG: number
+  carbsG: number
+  fatG: number
+  foods: string[]
+}
+
+interface DietPreview {
+  meals: ParsedMeal[]
+  totals: { kcal: number; proteinG: number; carbsG: number; fatG: number }
+  macrosSumValid: boolean
+  ignoredLines: number
+}
+
 export default function ImportPage() {
   const router = useRouter()
+  const [activeTab, setActiveTab] = useState<'workout' | 'diet'>('workout')
+
+  // — Workout state —
   const [txt, setTxt] = useState('')
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null)
   const [preview, setPreview] = useState<ParsedPlan | null>(null)
@@ -308,6 +331,14 @@ export default function ImportPage() {
   const [isImporting, setIsImporting] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
+
+  // — Diet state —
+  const [dietTxt, setDietTxt] = useState('')
+  const [dietPreview, setDietPreview] = useState<DietPreview | null>(null)
+  const [isDietParsing, setIsDietParsing] = useState(false)
+  const [isDietImporting, setIsDietImporting] = useState(false)
+  const [dietError, setDietError] = useState('')
+  const [dietSuccess, setDietSuccess] = useState(false)
 
   const applyTemplate = (t: WorkoutTemplate) => {
     setSelectedTemplate(t.id)
@@ -347,11 +378,197 @@ export default function ImportPage() {
     }
   }
 
+  // ── Diet handlers ────────────────────────────────────────────────────────
+
+  const handleDietParse = async () => {
+    if (!dietTxt.trim()) {
+      setDietError('Cole seu plano alimentar no campo acima.')
+      return
+    }
+    setDietError('')
+    setIsDietParsing(true)
+    try {
+      const result = await api.post<DietPreview>('api/import/diet/preview', { rawTxt: dietTxt })
+      if (!result.meals || result.meals.length === 0) {
+        setDietError('Nenhuma refeição reconhecida. Use o formato do exemplo.')
+        return
+      }
+      setDietPreview(result)
+    } catch (err: unknown) {
+      setDietError(err instanceof Error ? err.message : 'Erro ao parsear')
+    } finally {
+      setIsDietParsing(false)
+    }
+  }
+
+  const handleDietImport = async () => {
+    if (!dietPreview) return
+    setIsDietImporting(true)
+    setDietError('')
+    try {
+      await api.post('api/import/diet', { rawTxt: dietTxt })
+      setDietSuccess(true)
+      setTimeout(() => router.push('/nutrition'), 1500)
+    } catch (err: unknown) {
+      setDietError(err instanceof Error ? err.message : 'Erro ao importar')
+      setIsDietImporting(false)
+    }
+  }
+
   return (
     <div className="px-4 pt-4 pb-8 space-y-4 max-w-lg mx-auto">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-foreground">Importar Treino</h1>
+        <h1 className="text-xl font-bold text-foreground">Importar</h1>
       </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 p-1 bg-muted rounded-xl">
+        {(['workout', 'diet'] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${
+              activeTab === tab
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {tab === 'workout' ? '⚔️ Treino' : '🥗 Dieta'}
+          </button>
+        ))}
+      </div>
+
+      {/* ─── ABA DIETA ──────────────────────────────────────────────────────── */}
+      {activeTab === 'diet' && (
+        <div className="space-y-4">
+          <details className="hunter-card">
+            <summary className="text-xs text-muted-foreground cursor-pointer select-none">
+              📋 Ver formato aceito
+            </summary>
+            <div className="font-mono text-xs bg-muted/40 rounded-lg p-2 space-y-0.5 text-[11px] mt-2">
+              <p className="text-blue-400">Refeição 1 - Café da manhã (07h)</p>
+              <p>Ovos mexidos com aveia</p>
+              <p className="text-green-400">Proteína: 30g · Carbs: 45g · Gordura: 12g · 410kcal</p>
+              <p className="text-blue-400 mt-1">Refeição 2 - Almoço (12h)</p>
+              <p>Frango grelhado, arroz, feijão, salada</p>
+              <p className="text-green-400">P: 50g · C: 80g · G: 15g · 655kcal</p>
+              <p className="text-amber-400 mt-1">Total: P: 180g · C: 220g · G: 70g · 2450kcal</p>
+            </div>
+          </details>
+
+          <div className="space-y-1.5">
+            <label className="text-xs text-muted-foreground">Cole seu plano alimentar aqui</label>
+            <textarea
+              value={dietTxt}
+              onChange={(e) => { setDietTxt(e.target.value); setDietPreview(null) }}
+              placeholder="Refeição 1 - Café da manhã..."
+              rows={10}
+              className="w-full bg-input border border-border rounded-xl px-4 py-3 text-sm text-foreground font-mono placeholder:text-muted-foreground/40 focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
+            />
+            <p className="text-xs text-muted-foreground text-right">{dietTxt.length} caracteres</p>
+          </div>
+
+          {dietError && (
+            <div className="bg-destructive/15 border border-destructive/30 text-destructive text-sm rounded-lg px-3 py-2">
+              {dietError}
+            </div>
+          )}
+
+          {!dietPreview && !dietSuccess && (
+            <button
+              onClick={handleDietParse}
+              disabled={isDietParsing}
+              className="w-full py-3.5 bg-primary/20 text-primary border border-primary/30 rounded-xl font-bold text-sm active:scale-95 transition-transform disabled:opacity-60"
+            >
+              {isDietParsing ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                  Analisando...
+                </span>
+              ) : '🔍 Pré-visualizar plano alimentar'}
+            </button>
+          )}
+
+          {dietPreview && !dietSuccess && (
+            <div className="space-y-3">
+              {/* Totais */}
+              <div className="hunter-card">
+                <p className="text-xs text-muted-foreground uppercase tracking-wider font-mono mb-2">Totais</p>
+                <div className="grid grid-cols-4 gap-2 text-center">
+                  {[
+                    { label: 'Kcal',  value: dietPreview.totals.kcal,     unit: '' },
+                    { label: 'Prot',  value: dietPreview.totals.proteinG, unit: 'g' },
+                    { label: 'Carbs', value: dietPreview.totals.carbsG,   unit: 'g' },
+                    { label: 'Gord',  value: dietPreview.totals.fatG,     unit: 'g' },
+                  ].map(({ label, value, unit }) => (
+                    <div key={label}>
+                      <p className="text-lg font-bold text-foreground">{Math.round(value)}{unit}</p>
+                      <p className="text-[10px] text-muted-foreground">{label}</p>
+                    </div>
+                  ))}
+                </div>
+                {!dietPreview.macrosSumValid && (
+                  <p className="text-xs text-amber-400 mt-2">
+                    ⚠️ Soma dos macros difere do total declarado em mais de 10 kcal
+                  </p>
+                )}
+              </div>
+
+              {/* Refeições */}
+              <div className="space-y-2">
+                {dietPreview.meals.map((meal) => (
+                  <div key={meal.number} className="hunter-card space-y-1">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-bold text-foreground">
+                        {meal.number}. {meal.name}
+                        {meal.suggestedTime && (
+                          <span className="text-xs text-muted-foreground ml-1">({meal.suggestedTime})</span>
+                        )}
+                      </p>
+                      <span className="text-xs font-bold text-primary">{meal.kcal} kcal</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      P: {meal.proteinG.toFixed(0)}g · C: {meal.carbsG.toFixed(0)}g · G: {meal.fatG.toFixed(0)}g
+                    </p>
+                    {meal.foods.length > 0 && (
+                      <p className="text-[11px] text-muted-foreground/60 italic">
+                        {meal.foods.slice(0, 2).join(', ')}{meal.foods.length > 2 ? '...' : ''}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setDietPreview(null)}
+                  className="flex-1 py-2.5 border border-border text-muted-foreground rounded-xl text-sm font-medium"
+                >
+                  Editar texto
+                </button>
+                <button
+                  onClick={handleDietImport}
+                  disabled={isDietImporting}
+                  className="flex-1 py-2.5 bg-primary text-white rounded-xl font-bold text-sm active:scale-95 transition-transform disabled:opacity-60"
+                >
+                  {isDietImporting ? 'Importando...' : '🥗 Importar dieta'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {dietSuccess && (
+            <div className="hunter-card border-green-700/50 bg-green-950/20 text-center py-6 space-y-2">
+              <p className="text-3xl">✅</p>
+              <p className="text-sm font-bold text-green-400">Plano alimentar importado!</p>
+              <p className="text-xs text-muted-foreground">Redirecionando para Nutrição...</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ─── ABA TREINO (existente) ─────────────────────────────────────────── */}
+      {activeTab === 'workout' && (<>
 
       {/* Templates pré-definidos */}
       <div className="space-y-2">
@@ -494,6 +711,7 @@ export default function ImportPage() {
           <p className="text-xs text-muted-foreground">Redirecionando para Treinos...</p>
         </div>
       )}
+      </>)}
     </div>
   )
 }
