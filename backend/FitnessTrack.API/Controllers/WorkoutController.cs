@@ -172,6 +172,22 @@ public class WorkoutController : ControllerBase
             // Level up / rank up
             var levelResult = await _hunterProgress.AddXpAsync(UserId, xpResult.TotalXp);
 
+            // Registrar evento de XP no feed (alimenta XpEventFeed no dashboard)
+            if (xpResult.TotalXp > 0)
+            {
+                _db.XpEvents.Add(new Core.Entities.XpEvent
+                {
+                    Id          = Guid.NewGuid(),
+                    UserId      = UserId,
+                    EventType   = "workout_session",
+                    XpGained    = xpResult.TotalXp,
+                    Multiplier  = (decimal)xpResult.Multiplier,
+                    Description = xpResult.Breakdown,
+                    SourceId    = session.Id,
+                    CreatedAt   = DateTime.UtcNow,
+                });
+            }
+
             await _db.SaveChangesAsync();
             await transaction.CommitAsync();
 
