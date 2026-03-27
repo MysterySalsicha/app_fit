@@ -25,27 +25,192 @@ interface ParsedPlan {
   days: ParsedDay[]
 }
 
-// Template de exemplo para o usuário
-const TEMPLATE_EXAMPLE = `DIA 1 - PUSH (Peito/Ombro/Tríceps)
+// ─── Templates pré-definidos ───────────────────────────────────────────────
+
+interface WorkoutTemplate {
+  id: string
+  label: string
+  badge: string
+  description: string
+  txt: string
+}
+
+const TEMPLATES: WorkoutTemplate[] = [
+  {
+    id: 'fullbody_3x',
+    label: 'Full Body 3×',
+    badge: 'Iniciante',
+    description: '3 dias · Academia ou casa',
+    txt: `DIA 1 - FULL BODY A
+Agachamento Livre | 3x10-12 | Descanso: 90s
+Supino Reto com Barra | 3x10-12 | Descanso: 90s
+Remada Curvada | 3x10-12 | Descanso: 90s
+Desenvolvimento Ombro | 3x10-12 | Descanso: 75s
+Rosca Direta | 3x12-15 | Descanso: 60s
+Tríceps Testa | 3x12-15 | Descanso: 60s
+
+DIA 2 - DESCANSO
+
+DIA 3 - FULL BODY B
+Leg Press 45° | 3x12-15 | Descanso: 90s
+Supino Inclinado Haltere | 3x10-12 | Descanso: 75s
+Puxada na Polia Alta | 3x10-12 | Descanso: 75s
+Elevação Lateral | 3x12-15 | Descanso: 60s
+Rosca Martelo | 3x12-15 | Descanso: 60s
+Tríceps Polia Alta | 3x12-15 | Descanso: 60s
+
+DIA 4 - DESCANSO
+
+DIA 5 - FULL BODY C
+Stiff | 3x10-12 | Descanso: 90s
+Crucifixo com Haltere | 3x12-15 | Descanso: 75s
+Remada Unilateral | 3x10-12 | Descanso: 75s
+Desenvolvimento Haltere | 3x12-15 | Descanso: 60s
+Rosca Concentrada | 3x12-15 | Descanso: 60s
+Mergulho Banco | 3x12-15 | Descanso: 60s
+
+DIA 6 - DESCANSO
+DIA 7 - DESCANSO`,
+  },
+  {
+    id: 'upper_lower_4x',
+    label: 'Upper/Lower 4×',
+    badge: 'Iniciante+',
+    description: '4 dias · Academia',
+    txt: `DIA 1 - UPPER A (Peito/Ombros)
 Supino Reto com Barra | 4x8-12 | Descanso: 90s
 Supino Inclinado Haltere | 3x10-12 | Descanso: 75s
 Desenvolvimento Ombro | 4x8-12 | Descanso: 90s
 Elevação Lateral | 3x12-15 | Descanso: 60s
 Tríceps Polia Alta | 3x12-15 | Descanso: 60s
 
-DIA 2 - PULL [Costas/Bíceps]
+DIA 2 - LOWER A (Quadríceps/Glúteos)
+Agachamento Livre | 4x8-12 | Descanso: 120s
+Leg Press 45° | 4x10-12 | Descanso: 90s
+Extensão de Joelho | 3x12-15 | Descanso: 60s
+Cadeira Flexora | 3x12-15 | Descanso: 60s
+Panturrilha em Pé | 4x15-20 | Descanso: 45s
+
+DIA 3 - DESCANSO
+
+DIA 4 - UPPER B (Costas/Bíceps)
 Barra Fixa Supinada | 4x6-10 | Descanso: 120s
 Remada Curvada com Barra | 4x8-12 | Descanso: 90s
 Puxada na Polia Alta | 3x10-12 | Descanso: 75s
 Rosca Direta com Barra | 3x10-12 | Descanso: 60s
+Rosca Martelo | 2x12-15 | Descanso: 60s
 
-DIA 3 - LEGS (Quadríceps/Glúteos)
+DIA 5 - LOWER B (Posterior/Glúteos)
+Stiff com Haltere | 4x10-12 | Descanso: 90s
+Agachamento Sumô | 3x12-15 | Descanso: 75s
+Afundo com Haltere | 3x12 | Descanso: 75s
+Mesa Flexora | 3x12-15 | Descanso: 60s
+Panturrilha Sentado | 3x15-20 | Descanso: 45s
+
+DIA 6 - DESCANSO
+DIA 7 - DESCANSO`,
+  },
+  {
+    id: 'ppl_5x',
+    label: 'PPL 5×',
+    badge: 'Intermediário',
+    description: '5 dias · Push/Pull/Legs',
+    txt: `DIA 1 - PUSH (Peito/Ombro/Tríceps)
+Supino Reto com Barra | 4x6-10 | Descanso: 120s
+Supino Inclinado Haltere | 3x10-12 | Descanso: 90s
+Crossover Polia | 3x12-15 | Descanso: 60s
+Desenvolvimento Ombro | 4x8-12 | Descanso: 90s
+Elevação Lateral | 4x12-15 | Descanso: 60s
+Tríceps Francês | 3x10-12 | Descanso: 60s
+Tríceps Polia Alta | 3x12-15 | Descanso: 60s
+
+DIA 2 - PULL (Costas/Bíceps)
+Barra Fixa Pronada | 4x6-10 | Descanso: 120s
+Remada Curvada com Barra | 4x8-10 | Descanso: 90s
+Remada Unilateral Haltere | 3x10-12 | Descanso: 75s
+Puxada Aberta | 3x12-15 | Descanso: 75s
+Rosca Direta com Barra | 4x10-12 | Descanso: 60s
+Rosca Martelo | 3x12-15 | Descanso: 60s
+
+DIA 3 - LEGS (Quadríceps/Posterior/Glúteos)
 Agachamento Livre | 4x6-10 | Descanso: 120s
 Leg Press 45° | 4x10-12 | Descanso: 90s
 Extensão de Joelho | 3x12-15 | Descanso: 60s
-Cadeira Flexora | 3x12-15 | Descanso: 60s
+Stiff com Haltere | 4x10-12 | Descanso: 90s
+Mesa Flexora | 3x12-15 | Descanso: 60s
+Panturrilha em Pé | 4x15-20 | Descanso: 45s
 
-DIA 7 - DESCANSO`
+DIA 4 - PUSH B (Peito/Ombro/Tríceps)
+Supino Declinado | 4x8-12 | Descanso: 90s
+Crucifixo com Haltere | 3x12-15 | Descanso: 75s
+Desenvolvimento Arnold | 3x10-12 | Descanso: 90s
+Elevação Frontal | 3x12-15 | Descanso: 60s
+Tríceps Coice | 3x12-15 | Descanso: 60s
+
+DIA 5 - PULL B (Costas/Bíceps)
+Remada Cavalinho | 4x8-12 | Descanso: 90s
+Puxada Triângulo | 3x10-12 | Descanso: 75s
+Serrote Haltere | 3x10-12 | Descanso: 75s
+Rosca Concentrada | 3x12-15 | Descanso: 60s
+Rosca Spider | 3x12-15 | Descanso: 60s
+
+DIA 6 - DESCANSO
+DIA 7 - DESCANSO`,
+  },
+  {
+    id: 'ppl_6x',
+    label: 'PPL 6×',
+    badge: 'Avançado',
+    description: '6 dias · Push/Pull/Legs 2×',
+    txt: `DIA 1 - PUSH A (Peito foco)
+Supino Reto com Barra | 5x5 | Descanso: 120s
+Supino Inclinado Haltere | 4x10-12 | Descanso: 90s
+Crossover Polia | 3x12-15 | Descanso: 60s
+Desenvolvimento Ombro | 4x8-12 | Descanso: 90s
+Elevação Lateral | 4x15 | Descanso: 60s
+Tríceps Francês | 4x10-12 | Descanso: 60s
+
+DIA 2 - PULL A (Costas foco)
+Barra Fixa | 5x5 | Descanso: 120s
+Remada Curvada | 4x8-10 | Descanso: 90s
+Puxada Aberta | 3x12-15 | Descanso: 75s
+Rosca Direta | 4x10-12 | Descanso: 60s
+Rosca Martelo | 3x12-15 | Descanso: 60s
+
+DIA 3 - LEGS A (Quadríceps foco)
+Agachamento Livre | 5x5 | Descanso: 120s
+Leg Press 45° | 4x10-12 | Descanso: 90s
+Hack Squat | 3x12-15 | Descanso: 90s
+Extensão de Joelho | 3x15 | Descanso: 60s
+Panturrilha em Pé | 5x15-20 | Descanso: 45s
+
+DIA 4 - PUSH B (Ombro foco)
+Desenvolvimento com Barra | 5x5 | Descanso: 120s
+Supino Declinado | 4x8-12 | Descanso: 90s
+Elevação Lateral | 5x15 | Descanso: 60s
+Crucifixo Inclinado | 3x12-15 | Descanso: 75s
+Tríceps Polia Alta | 4x12-15 | Descanso: 60s
+
+DIA 5 - PULL B (Bíceps foco)
+Remada Cavalinho | 4x8-12 | Descanso: 90s
+Puxada Supinada | 4x10-12 | Descanso: 90s
+Rosca Concentrada | 4x12-15 | Descanso: 60s
+Rosca Spider | 3x12-15 | Descanso: 60s
+Face Pull | 3x15 | Descanso: 60s
+
+DIA 6 - LEGS B (Posterior foco)
+Stiff | 5x5 | Descanso: 120s
+Agachamento Sumô | 4x10-12 | Descanso: 90s
+Mesa Flexora | 4x12-15 | Descanso: 60s
+Afundo com Haltere | 3x12 | Descanso: 75s
+Panturrilha Sentado | 4x15-20 | Descanso: 45s
+
+DIA 7 - DESCANSO`,
+  },
+]
+
+// Template de exemplo para o usuário (mantido para compatibilidade)
+const TEMPLATE_EXAMPLE = TEMPLATES[1].txt
 
 // Parser local (espelha a lógica do backend para preview imediato)
 function parseWorkoutTxt(txt: string): ParsedPlan {
@@ -137,15 +302,24 @@ function DayPreview({ day }: { day: ParsedDay }) {
 export default function ImportPage() {
   const router = useRouter()
   const [txt, setTxt] = useState('')
+  const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null)
   const [preview, setPreview] = useState<ParsedPlan | null>(null)
   const [planName, setPlanName] = useState('Meu Plano de Treino')
   const [isImporting, setIsImporting] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
 
+  const applyTemplate = (t: WorkoutTemplate) => {
+    setSelectedTemplate(t.id)
+    setTxt(t.txt)
+    setPlanName(t.label)
+    setPreview(null)
+    setError('')
+  }
+
   const handleParse = () => {
     if (!txt.trim()) {
-      setError('Cole seu plano de treino no campo acima.')
+      setError('Cole seu plano de treino no campo acima ou escolha um template.')
       return
     }
     setError('')
@@ -173,36 +347,71 @@ export default function ImportPage() {
     }
   }
 
-  const useExample = () => {
-    setTxt(TEMPLATE_EXAMPLE)
-    setPreview(null)
-    setError('')
-    setSuccess(false)
-  }
-
   return (
     <div className="px-4 pt-4 pb-8 space-y-4 max-w-lg mx-auto">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-foreground">Importar Treino</h1>
-        <button onClick={useExample} className="text-xs text-primary border border-primary/30 rounded-lg px-3 py-1.5">
-          Ver exemplo
-        </button>
       </div>
 
-      {/* Instruções */}
-      <div className="hunter-card space-y-2 text-sm text-muted-foreground">
-        <p className="font-medium text-foreground text-xs uppercase tracking-wide">Formato aceito</p>
-        <div className="font-mono text-xs bg-muted/40 rounded-lg p-2 space-y-0.5 text-[11px]">
+      {/* Templates pré-definidos */}
+      <div className="space-y-2">
+        <p className="text-xs text-muted-foreground uppercase tracking-wider font-mono">
+          ⚡ Escolha um template pronto — ou cole o seu abaixo
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          {TEMPLATES.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => applyTemplate(t)}
+              className={`text-left p-3 rounded-xl border transition-all ${
+                selectedTemplate === t.id
+                  ? 'border-primary bg-primary/10'
+                  : 'border-border bg-muted/10 hover:border-primary/40'
+              }`}
+            >
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className={`text-xs font-bold px-1.5 py-0.5 rounded-md ${
+                  t.badge === 'Iniciante' ? 'bg-green-500/20 text-green-400' :
+                  t.badge === 'Iniciante+' ? 'bg-blue-500/20 text-blue-400' :
+                  t.badge === 'Intermediário' ? 'bg-amber-500/20 text-amber-400' :
+                  'bg-red-500/20 text-red-400'
+                }`}>
+                  {t.badge}
+                </span>
+              </div>
+              <p className="text-sm font-bold text-foreground">{t.label}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{t.description}</p>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Divisor */}
+      <div className="flex items-center gap-3">
+        <div className="flex-1 h-px bg-border" />
+        <span className="text-xs text-muted-foreground">ou cole seu próprio</span>
+        <div className="flex-1 h-px bg-border" />
+      </div>
+
+      {/* Formato aceito — colapsável para não poluir */}
+      <details className="hunter-card">
+        <summary className="text-xs text-muted-foreground cursor-pointer select-none">
+          📋 Ver formato aceito
+        </summary>
+        <div className="font-mono text-xs bg-muted/40 rounded-lg p-2 space-y-0.5 text-[11px] mt-2">
           <p className="text-blue-400">DIA 1 - PUSH (Peito/Ombro)</p>
           <p>Supino Reto | <span className="text-green-400">4x8-12</span> | <span className="text-amber-400">Descanso: 90s</span></p>
           <p className="text-blue-400 mt-1">DIA 2 - PULL [Costas/Bíceps]</p>
           <p>Remada Curvada | <span className="text-green-400">4x8-10</span></p>
+          <p className="text-muted-foreground mt-1">DIA 7 - DESCANSO</p>
         </div>
-      </div>
+      </details>
 
       {/* Textarea */}
       <div className="space-y-1.5">
-        <label className="text-xs text-muted-foreground">Cole seu plano aqui</label>
+        <label className="text-xs text-muted-foreground">
+          {selectedTemplate ? 'Template selecionado (edite se quiser)' : 'Cole seu plano aqui'}
+        </label>
         <textarea
           value={txt}
           onChange={(e) => { setTxt(e.target.value); setPreview(null) }}
