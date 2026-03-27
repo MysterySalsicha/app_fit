@@ -22,6 +22,20 @@ export default function HunterPage() {
           >
             Músculos
           </Link>
+          <Link
+            href="/body"
+            className="text-xs text-muted-foreground border border-border rounded-lg px-3 py-1.5"
+          >
+            Corpo
+          </Link>
+          {/* Acesso a Configurações — ícone de engrenagem */}
+          <Link
+            href="/settings"
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-border text-muted-foreground hover:text-foreground transition-colors"
+            title="Configurações"
+          >
+            ⚙️
+          </Link>
         </div>
       </div>
 
